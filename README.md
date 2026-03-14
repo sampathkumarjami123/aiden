@@ -72,6 +72,18 @@ Then edit `.env` and set:
 - Optional: `AIDEN_MAX_MESSAGES` (default is `30`)
 - Optional: `AIDEN_DEV_MODE` (default is `true`; allows local fallback replies when key is missing)
 
+## Quick Start Scripts (Windows PowerShell)
+
+Use these helper scripts after setup:
+
+```powershell
+.\scripts\start.ps1 -Mode web -Reload
+.\scripts\start.ps1 -Mode cli
+.\scripts\start.ps1 -Mode desktop
+.\scripts\start.ps1 -Mode voice
+.\scripts\health-check.ps1
+```
+
 ## 2) Run CLI
 
 ```powershell
@@ -153,6 +165,8 @@ In voice mode:
 - `aiden_web.py`: web server app
 - `aiden_voice.py`: voice-first app
 - `aiden_prompt.md`: system instruction and personality
+- `scripts/start.ps1`: one-command launcher for web, cli, desktop, and voice modes
+- `scripts/health-check.ps1`: compile and web endpoint smoke test
 - `preferences.json`: created automatically after first preference change
 - `profiles.json`: active profile, profile settings, tasks, and memory notes
 - `chat_exports/`: generated chat exports (`.md`)
