@@ -42,7 +42,7 @@ class AidenEngine:
 
         api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("AIDEN_MODEL", "gpt-5.3-codex")
-        self.max_messages = int(os.getenv("AIDEN_MAX_MESSAGES", "30"))
+        self.max_messages = self._parse_max_messages(os.getenv("AIDEN_MAX_MESSAGES"))
         self.dev_mode = os.getenv("AIDEN_DEV_MODE", "true").lower() != "false"
         self.client: OpenAI | None = None
 
@@ -63,8 +63,8 @@ class AidenEngine:
         self.refresh_system_prompt()
 
     @staticmethod
-    def load_preferences() -> Dict[str, str]:
-        default = {
+    def _default_preferences() -> Dict[str, object]:
+        return {
             "name": "User",
             "mode": "study",
             "short_responses": "false",
@@ -74,17 +74,55 @@ class AidenEngine:
             "tasks": [],
             "memory_notes": [],
         }
+
+    @staticmethod
+    def _sanitize_profile(preferences: Dict[str, object] | object) -> Dict[str, object]:
+        merged = AidenEngine._default_preferences()
+        if isinstance(preferences, dict):
+            merged.update(preferences)
+
+        mode = str(merged.get("mode", "study")).lower()
+        if mode not in MODES:
+            mode = "study"
+
+        short_responses = str(merged.get("short_responses", "false")).lower()
+        if short_responses not in {"true", "false"}:
+            short_responses = "false"
+
+        tasks = merged.get("tasks", [])
+        memory_notes = merged.get("memory_notes", [])
+
+        sanitized: Dict[str, object] = {
+            "name": str(merged.get("name", "User")).strip() or "User",
+            "mode": mode,
+            "short_responses": short_responses,
+            "learning_style": str(merged.get("learning_style", "step-by-step"))
+            .strip()
+            or "step-by-step",
+            "focus_goal": str(merged.get("focus_goal", "")).strip(),
+            "interests": str(merged.get("interests", "")).strip(),
+            "tasks": tasks if isinstance(tasks, list) else [],
+            "memory_notes": memory_notes if isinstance(memory_notes, list) else [],
+        }
+
+        return sanitized
+
+    @staticmethod
+    def _parse_max_messages(raw_value: str | None) -> int:
+        try:
+            value = int((raw_value or "30").strip())
+        except ValueError:
+            return 30
+        return max(5, value)
+
+    @staticmethod
+    def load_preferences() -> Dict[str, str]:
+        default = AidenEngine._default_preferences()
         if not PREFERENCES_FILE.exists():
             return default
         try:
             loaded = json.loads(PREFERENCES_FILE.read_text(encoding="utf-8"))
-            merged = dict(default)
-            merged.update(loaded)
-            if not isinstance(merged.get("tasks", []), list):
-                merged["tasks"] = []
-            if not isinstance(merged.get("memory_notes", []), list):
-                merged["memory_notes"] = []
-            return merged
+            return AidenEngine._sanitize_profile(loaded)
         except (json.JSONDecodeError, OSError):
             return default
 
@@ -104,6 +142,14 @@ class AidenEngine:
                 active_profile = loaded.get("active_profile", "default")
                 if not isinstance(profiles, dict) or not profiles:
                     raise ValueError("Invalid profiles store")
+                sanitized_profiles = {
+                    str(name).strip().lower().replace(" ", "-"): AidenEngine._sanitize_profile(profile)
+                    for name, profile in profiles.items()
+                    if str(name).strip()
+                }
+                if not sanitized_profiles:
+                    raise ValueError("Invalid profiles store")
+                profiles = sanitized_profiles
                 if active_profile not in profiles:
                     active_profile = next(iter(profiles.keys()))
                 return {"active_profile": active_profile, "profiles": profiles}
@@ -259,16 +305,7 @@ class AidenEngine:
         profiles = self.profile_store["profiles"]
         if name in profiles:
             raise ValueError(f"Profile already exists: {name}")
-        profiles[name] = {
-            "name": "User",
-            "mode": "study",
-            "short_responses": "false",
-            "learning_style": "step-by-step",
-            "focus_goal": "",
-            "interests": "",
-            "tasks": [],
-            "memory_notes": [],
-        }
+        profiles[name] = self._default_preferences()
         self.save_profile_store()
         return name
 
@@ -458,25 +495,7 @@ class AidenEngine:
         if not name:
             raise ValueError("Profile name cannot be empty.")
 
-        default = {
-            "name": "User",
-            "mode": "study",
-            "short_responses": "false",
-            "learning_style": "step-by-step",
-            "focus_goal": "",
-            "interests": "",
-            "tasks": [],
-            "memory_notes": [],
-        }
-
-        merged = dict(default)
-        merged.update(profile_data)
-        if not isinstance(merged.get("tasks", []), list):
-            merged["tasks"] = []
-        if not isinstance(merged.get("memory_notes", []), list):
-            merged["memory_notes"] = []
-
-        self.profile_store["profiles"][name] = merged
+        self.profile_store["profiles"][name] = self._sanitize_profile(profile_data)
         self.profile_store["active_profile"] = name
         self.active_profile = name
         self.preferences = self.profile_store["profiles"][name]
