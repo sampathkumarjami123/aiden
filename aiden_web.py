@@ -1,8 +1,12 @@
 import json
+import logging
 import os
 import threading
 import time
 from collections import defaultdict, deque
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -19,6 +23,9 @@ engine = AidenEngine()
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
 
+ROOT = Path(__file__).resolve().parent
+LOG_DIR = ROOT / "logs"
+
 
 def _parse_positive_int_env(name: str, default: int) -> int:
     raw = os.getenv(name, str(default)).strip()
@@ -32,6 +39,33 @@ def _parse_positive_int_env(name: str, default: int) -> int:
 RATE_LIMIT_WINDOW_SECONDS = _parse_positive_int_env("AIDEN_RATE_LIMIT_WINDOW_SECONDS", 60)
 RATE_LIMIT_REQUESTS_PER_WINDOW = _parse_positive_int_env("AIDEN_RATE_LIMIT_PER_WINDOW", 60)
 MAX_REQUEST_BYTES = _parse_positive_int_env("AIDEN_MAX_REQUEST_BYTES", 65536)
+LOG_MAX_BYTES = _parse_positive_int_env("AIDEN_LOG_MAX_BYTES", 1048576)
+LOG_BACKUP_COUNT = _parse_positive_int_env("AIDEN_LOG_BACKUP_COUNT", 3)
+
+
+def _configure_logger() -> logging.Logger:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger("aiden.web")
+    logger.setLevel(os.getenv("AIDEN_LOG_LEVEL", "INFO").upper())
+
+    if logger.handlers:
+        return logger
+
+    handler = RotatingFileHandler(
+        LOG_DIR / "aiden-web.log",
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s request_id=%(request_id)s client=%(client)s method=%(method)s path=%(path)s status=%(status)s duration_ms=%(duration_ms)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
+
+
+WEB_LOGGER = _configure_logger()
 
 _rate_limit_lock = threading.Lock()
 _client_request_times: dict[str, deque[float]] = defaultdict(deque)
@@ -68,14 +102,40 @@ def _clear_rate_limit_state() -> None:
         _client_request_times.clear()
 
 
+def _log_api_request(
+    request_id: str,
+    request: Request,
+    status: int,
+    start_time: float,
+) -> None:
+    duration_ms = int((time.monotonic() - start_time) * 1000)
+    WEB_LOGGER.info(
+        "api-request",
+        extra={
+            "request_id": request_id,
+            "client": _get_client_key(request),
+            "method": request.method,
+            "path": request.url.path,
+            "status": status,
+            "duration_ms": duration_ms,
+        },
+    )
+
+
 @app.middleware("http")
 async def api_guardrails(request: Request, call_next):
     path = request.url.path
+    start_time = time.monotonic()
+    request_id = request.headers.get("x-request-id") or uuid4().hex
+
+    def with_request_id(response: JSONResponse):
+        response.headers["x-request-id"] = request_id
+        return response
 
     if path.startswith("/api/") and request.method in {"POST", "PUT", "PATCH"}:
         body = await request.body()
         if len(body) > MAX_REQUEST_BYTES:
-            return JSONResponse(
+            response = JSONResponse(
                 {
                     "error": (
                         f"Request body too large. Max allowed is {MAX_REQUEST_BYTES} bytes."
@@ -83,14 +143,29 @@ async def api_guardrails(request: Request, call_next):
                 },
                 status_code=413,
             )
+            response = with_request_id(response)
+            _log_api_request(request_id, request, response.status_code, start_time)
+            return response
 
     if path.startswith("/api/") and _is_rate_limited(request):
-        return JSONResponse(
+        response = JSONResponse(
             {"error": "Too many requests. Please try again shortly."},
             status_code=429,
         )
+        response = with_request_id(response)
+        _log_api_request(request_id, request, response.status_code, start_time)
+        return response
 
-    return await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        if path.startswith("/api/"):
+            _log_api_request(request_id, request, 500, start_time)
+        raise
+    response.headers["x-request-id"] = request_id
+    if path.startswith("/api/"):
+        _log_api_request(request_id, request, response.status_code, start_time)
+    return response
 
 
 @app.exception_handler(ValueError)

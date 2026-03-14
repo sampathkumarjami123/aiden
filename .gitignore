@@ -9,3 +9,4 @@ chat_exports/
 infra/
 .github/agents/Azure_Static_Web_App.chatmode.md
 *.log
+logs/

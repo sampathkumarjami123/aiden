@@ -22,6 +22,7 @@ class WebApiTests(unittest.TestCase):
     def test_state_endpoint_shape(self):
         response = self.client.get('/api/state')
         self.assertEqual(response.status_code, 200)
+        self.assertIn('x-request-id', response.headers)
         payload = response.json()
         for key in ('prefs', 'profiles', 'tasks', 'memory_notes', 'runtime'):
             self.assertIn(key, payload)
@@ -29,6 +30,7 @@ class WebApiTests(unittest.TestCase):
     def test_invalid_profile_switch_returns_400(self):
         response = self.client.post('/api/profiles/switch', json={'name': 'does-not-exist'})
         self.assertEqual(response.status_code, 400)
+        self.assertIn('x-request-id', response.headers)
         self.assertIn('error', response.json())
 
     def test_invalid_task_done_returns_400(self):
@@ -45,6 +47,7 @@ class WebApiTests(unittest.TestCase):
         with patch('aiden_web.MAX_REQUEST_BYTES', 8):
             response = self.client.post('/api/chat', json={'message': 'this payload is too large'})
         self.assertEqual(response.status_code, 413)
+        self.assertIn('x-request-id', response.headers)
         self.assertIn('error', response.json())
 
     def test_rate_limit_returns_429(self):
@@ -56,6 +59,7 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
         self.assertEqual(third.status_code, 429)
+        self.assertIn('x-request-id', third.headers)
         self.assertIn('error', third.json())
 
 

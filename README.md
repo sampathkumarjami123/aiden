@@ -80,6 +80,9 @@ Then edit `.env` and set:
 - Optional: `AIDEN_RATE_LIMIT_WINDOW_SECONDS` (default is `60`)
 - Optional: `AIDEN_RATE_LIMIT_PER_WINDOW` (default is `60`)
 - Optional: `AIDEN_MAX_REQUEST_BYTES` (default is `65536`)
+- Optional: `AIDEN_LOG_LEVEL` (default is `INFO`)
+- Optional: `AIDEN_LOG_MAX_BYTES` (default is `1048576`)
+- Optional: `AIDEN_LOG_BACKUP_COUNT` (default is `3`)
 
 ## Quick Start Scripts (Windows PowerShell)
 
@@ -94,6 +97,8 @@ Use these helper scripts after setup:
 .\scripts\test.ps1
 .\scripts\health-check.ps1
 .\scripts\health-check.ps1 -StartupTimeoutSeconds 60
+.\scripts\logs.ps1 -Tail 100
+.\scripts\logs.ps1 -Tail 100 -Follow
 ```
 
 CI quality checks run automatically on pushes and pull requests via GitHub Actions.
@@ -183,6 +188,7 @@ In voice mode:
 - `scripts/start.ps1`: one-command launcher for web, cli, desktop, and voice modes
 - `scripts/test.ps1`: runs unit tests from the `tests/` folder
 - `scripts/health-check.ps1`: compile and web endpoint smoke test
+- `scripts/logs.ps1`: view or follow rotating API request logs
 - `preferences.json`: created automatically after first preference change
 - `profiles.json`: active profile, profile settings, tasks, and memory notes
 - `chat_exports/`: generated chat exports (`.md`)
@@ -196,6 +202,7 @@ In voice mode:
 - If `pyttsx3` is unavailable, voice output is skipped safely.
 - If `OPENAI_API_KEY` is not set and `AIDEN_DEV_MODE=true`, Aiden still runs with local fallback responses for UI testing.
 - Health endpoint for checks and monitoring: `GET /health`
+- API responses include `x-request-id` for easier request tracing in logs.
 - In local fallback mode, you can use prefixes for structured output:
 	- `summarize: <text>`
 	- `plan: <goal or task>`
