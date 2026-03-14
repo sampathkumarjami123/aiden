@@ -1,4 +1,8 @@
 import json
+import os
+import threading
+import time
+from collections import defaultdict, deque
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -14,6 +18,79 @@ engine = AidenEngine()
 
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
+
+
+def _parse_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+RATE_LIMIT_WINDOW_SECONDS = _parse_positive_int_env("AIDEN_RATE_LIMIT_WINDOW_SECONDS", 60)
+RATE_LIMIT_REQUESTS_PER_WINDOW = _parse_positive_int_env("AIDEN_RATE_LIMIT_PER_WINDOW", 60)
+MAX_REQUEST_BYTES = _parse_positive_int_env("AIDEN_MAX_REQUEST_BYTES", 65536)
+
+_rate_limit_lock = threading.Lock()
+_client_request_times: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _get_client_key(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "").strip()
+    if xff:
+        return xff.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown-client"
+
+
+def _is_rate_limited(request: Request) -> bool:
+    now = time.monotonic()
+    cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+    key = _get_client_key(request)
+
+    with _rate_limit_lock:
+        timestamps = _client_request_times[key]
+        while timestamps and timestamps[0] < cutoff:
+            timestamps.popleft()
+
+        if len(timestamps) >= RATE_LIMIT_REQUESTS_PER_WINDOW:
+            return True
+
+        timestamps.append(now)
+        return False
+
+
+def _clear_rate_limit_state() -> None:
+    with _rate_limit_lock:
+        _client_request_times.clear()
+
+
+@app.middleware("http")
+async def api_guardrails(request: Request, call_next):
+    path = request.url.path
+
+    if path.startswith("/api/") and request.method in {"POST", "PUT", "PATCH"}:
+        body = await request.body()
+        if len(body) > MAX_REQUEST_BYTES:
+            return JSONResponse(
+                {
+                    "error": (
+                        f"Request body too large. Max allowed is {MAX_REQUEST_BYTES} bytes."
+                    )
+                },
+                status_code=413,
+            )
+
+    if path.startswith("/api/") and _is_rate_limited(request):
+        return JSONResponse(
+            {"error": "Too many requests. Please try again shortly."},
+            status_code=429,
+        )
+
+    return await call_next(request)
 
 
 @app.exception_handler(ValueError)

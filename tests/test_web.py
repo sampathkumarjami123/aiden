@@ -1,13 +1,16 @@
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+import aiden_web
 from aiden_web import app
 
 
 class WebApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
+        aiden_web._clear_rate_limit_state()
 
     def test_health_endpoint(self):
         response = self.client.get('/health')
@@ -37,6 +40,23 @@ class WebApiTests(unittest.TestCase):
         response = self.client.post('/api/chat', json={'message': 'hello', 'mode': 'invalid'})
         self.assertEqual(response.status_code, 400)
         self.assertIn('error', response.json())
+
+    def test_request_too_large_returns_413(self):
+        with patch('aiden_web.MAX_REQUEST_BYTES', 8):
+            response = self.client.post('/api/chat', json={'message': 'this payload is too large'})
+        self.assertEqual(response.status_code, 413)
+        self.assertIn('error', response.json())
+
+    def test_rate_limit_returns_429(self):
+        with patch('aiden_web.RATE_LIMIT_REQUESTS_PER_WINDOW', 2):
+            first = self.client.get('/api/state')
+            second = self.client.get('/api/state')
+            third = self.client.get('/api/state')
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(third.status_code, 429)
+        self.assertIn('error', third.json())
 
 
 if __name__ == '__main__':

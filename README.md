@@ -77,6 +77,9 @@ Then edit `.env` and set:
 - Optional: `AIDEN_MODEL` (default is `gpt-5.3-codex`)
 - Optional: `AIDEN_MAX_MESSAGES` (default is `30`)
 - Optional: `AIDEN_DEV_MODE` (default is `true`; allows local fallback replies when key is missing)
+- Optional: `AIDEN_RATE_LIMIT_WINDOW_SECONDS` (default is `60`)
+- Optional: `AIDEN_RATE_LIMIT_PER_WINDOW` (default is `60`)
+- Optional: `AIDEN_MAX_REQUEST_BYTES` (default is `65536`)
 
 ## Quick Start Scripts (Windows PowerShell)
 
