@@ -32,6 +32,15 @@ jobs:
         run: |
           python -m uvicorn aiden_web:app --host 127.0.0.1 --port 8000 &
           SERVER_PID=$!
-          sleep 5
-          curl --fail --silent --show-error http://127.0.0.1:8000/health > /dev/null
+          for i in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/health > /dev/null; then
+              break
+            fi
+            sleep 1
+            if [ "$i" -eq 30 ]; then
+              echo "Health endpoint did not become ready in time"
+              kill $SERVER_PID
+              exit 1
+            fi
+          done
           kill $SERVER_PID

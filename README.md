@@ -89,6 +89,7 @@ Use these helper scripts after setup:
 .\scripts\start.ps1 -Mode desktop
 .\scripts\start.ps1 -Mode voice
 .\scripts\health-check.ps1
+.\scripts\health-check.ps1 -StartupTimeoutSeconds 60
 ```
 
 CI quality checks run automatically on pushes and pull requests via GitHub Actions.

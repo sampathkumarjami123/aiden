@@ -1,5 +1,6 @@
 param(
-    [int]$Port = 8000
+    [int]$Port = 8000,
+    [int]$StartupTimeoutSeconds = 30
 )
 
 Set-StrictMode -Version Latest
@@ -25,11 +26,23 @@ Write-Host "Starting temporary web server on port $Port..."
 $server = Start-Process -FilePath $PythonExe -WorkingDirectory $ProjectRoot -ArgumentList @('-m', 'uvicorn', 'aiden_web:app', '--host', '127.0.0.1', '--port', "$Port") -PassThru
 
 try {
-    Start-Sleep -Seconds 3
+    $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
+    $response = $null
 
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/health" -UseBasicParsing -TimeoutSec 15
-    if ($response.StatusCode -ne 200) {
-        Write-Error "Health endpoint returned unexpected status: $($response.StatusCode)"
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/health" -UseBasicParsing -TimeoutSec 3
+            if ($response.StatusCode -eq 200) {
+                break
+            }
+        }
+        catch {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    if (-not $response -or $response.StatusCode -ne 200) {
+        Write-Error "Health endpoint did not become ready within $StartupTimeoutSeconds seconds."
     }
 
     Write-Host "Health check passed with HTTP $($response.StatusCode)."
