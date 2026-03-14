@@ -66,6 +66,12 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
+Or run one command:
+
+```powershell
+.\scripts\setup.ps1
+```
+
 Then edit `.env` and set:
 - `OPENAI_API_KEY`
 - Optional: `AIDEN_MODEL` (default is `gpt-5.3-codex`)
@@ -77,12 +83,15 @@ Then edit `.env` and set:
 Use these helper scripts after setup:
 
 ```powershell
+.\scripts\setup.ps1
 .\scripts\start.ps1 -Mode web -Reload
 .\scripts\start.ps1 -Mode cli
 .\scripts\start.ps1 -Mode desktop
 .\scripts\start.ps1 -Mode voice
 .\scripts\health-check.ps1
 ```
+
+CI quality checks run automatically on pushes and pull requests via GitHub Actions.
 
 ## 2) Run CLI
 
@@ -165,6 +174,7 @@ In voice mode:
 - `aiden_web.py`: web server app
 - `aiden_voice.py`: voice-first app
 - `aiden_prompt.md`: system instruction and personality
+- `scripts/setup.ps1`: creates virtual environment, installs dependencies, and bootstraps `.env`
 - `scripts/start.ps1`: one-command launcher for web, cli, desktop, and voice modes
 - `scripts/health-check.ps1`: compile and web endpoint smoke test
 - `preferences.json`: created automatically after first preference change
