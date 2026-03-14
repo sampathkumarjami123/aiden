@@ -1,9 +1,19 @@
 import unittest
 
-from aiden_core import AidenEngine
+from aiden_core import AidenEngine, ROOT, _resolve_data_root
 
 
 class CoreSanityTests(unittest.TestCase):
+    def test_resolve_data_root_defaults_to_project_root(self):
+        self.assertEqual(_resolve_data_root(None), ROOT)
+
+    def test_resolve_data_root_resolves_relative_path(self):
+        self.assertEqual(_resolve_data_root('runtime_data'), ROOT / 'runtime_data')
+
+    def test_resolve_data_root_keeps_absolute_path(self):
+        absolute = (ROOT / 'absolute_data').resolve()
+        self.assertEqual(_resolve_data_root(str(absolute)), absolute)
+
     def test_parse_max_messages_defaults_for_invalid_value(self):
         self.assertEqual(AidenEngine._parse_max_messages('abc'), 30)
 

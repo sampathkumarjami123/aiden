@@ -9,12 +9,28 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 
+load_dotenv()
+
 ROOT = Path(__file__).resolve().parent
-PREFERENCES_FILE = ROOT / "preferences.json"
-PROFILES_FILE = ROOT / "profiles.json"
+
+
+def _resolve_data_root(raw_value: str | None) -> Path:
+    value = (raw_value or "").strip()
+    if not value:
+        return ROOT
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = ROOT / candidate
+    return candidate
+
+
+DATA_ROOT = _resolve_data_root(os.getenv("AIDEN_DATA_DIR"))
+
+PREFERENCES_FILE = DATA_ROOT / "preferences.json"
+PROFILES_FILE = DATA_ROOT / "profiles.json"
 AIDEN_PROMPT_FILE = ROOT / "aiden_prompt.md"
-CHAT_EXPORT_DIR = ROOT / "chat_exports"
-PROFILE_EXPORT_DIR = ROOT / "profile_exports"
+CHAT_EXPORT_DIR = DATA_ROOT / "chat_exports"
+PROFILE_EXPORT_DIR = DATA_ROOT / "profile_exports"
 
 MODES: Dict[str, str] = {
     "study": "Study Mode",
@@ -128,6 +144,7 @@ class AidenEngine:
 
     @staticmethod
     def save_preferences(preferences: Dict[str, str]) -> None:
+        PREFERENCES_FILE.parent.mkdir(parents=True, exist_ok=True)
         PREFERENCES_FILE.write_text(
             json.dumps(preferences, indent=2),
             encoding="utf-8",
@@ -163,10 +180,12 @@ class AidenEngine:
                 "default": legacy,
             },
         }
+        PROFILES_FILE.parent.mkdir(parents=True, exist_ok=True)
         PROFILES_FILE.write_text(json.dumps(initial, indent=2), encoding="utf-8")
         return initial
 
     def save_profile_store(self) -> None:
+        PROFILES_FILE.parent.mkdir(parents=True, exist_ok=True)
         PROFILES_FILE.write_text(
             json.dumps(self.profile_store, indent=2),
             encoding="utf-8",

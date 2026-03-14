@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from aiden_core import AidenEngine, MODES
+from aiden_core import AidenEngine, DATA_ROOT, MODES
 
 
 app = FastAPI(title="Aiden Web")
@@ -23,8 +23,7 @@ engine = AidenEngine()
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
 
-ROOT = Path(__file__).resolve().parent
-LOG_DIR = ROOT / "logs"
+LOG_DIR = DATA_ROOT / "logs"
 
 
 def _parse_positive_int_env(name: str, default: int) -> int:
