@@ -5,6 +5,7 @@ __pycache__/
 preferences.json
 profiles.json
 chat_exports/
+profile_exports/
 .azure/
 infra/
 .github/agents/Azure_Static_Web_App.chatmode.md
