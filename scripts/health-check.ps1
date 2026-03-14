@@ -27,7 +27,7 @@ $server = Start-Process -FilePath $PythonExe -WorkingDirectory $ProjectRoot -Arg
 try {
     Start-Sleep -Seconds 3
 
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port" -UseBasicParsing -TimeoutSec 15
+    $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/health" -UseBasicParsing -TimeoutSec 15
     if ($response.StatusCode -ne 200) {
         Write-Error "Health endpoint returned unexpected status: $($response.StatusCode)"
     }

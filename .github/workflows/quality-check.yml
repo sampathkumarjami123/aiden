@@ -33,5 +33,5 @@ jobs:
           python -m uvicorn aiden_web:app --host 127.0.0.1 --port 8000 &
           SERVER_PID=$!
           sleep 5
-          curl --fail --silent --show-error http://127.0.0.1:8000 > /dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8000/health > /dev/null
           kill $SERVER_PID

@@ -189,6 +189,7 @@ In voice mode:
 - `SpeechRecognition` may require additional microphone dependencies on some systems.
 - If `pyttsx3` is unavailable, voice output is skipped safely.
 - If `OPENAI_API_KEY` is not set and `AIDEN_DEV_MODE=true`, Aiden still runs with local fallback responses for UI testing.
+- Health endpoint for checks and monitoring: `GET /health`
 - In local fallback mode, you can use prefixes for structured output:
 	- `summarize: <text>`
 	- `plan: <goal or task>`

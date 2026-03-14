@@ -82,6 +82,11 @@ def home(request: Request):
     )
 
 
+@app.get("/health")
+def health_check():
+    return JSONResponse({"ok": True, "service": "aiden-web"})
+
+
 @app.get("/api/state")
 def get_state():
     return JSONResponse(
