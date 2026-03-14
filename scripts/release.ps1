@@ -12,10 +12,14 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 
 function Invoke-Git {
-    param([string[]]$Args)
-    & git @Args
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$GitArgs
+    )
+
+    & git @GitArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "git command failed: git $($Args -join ' ')"
+        throw "git command failed: git $($GitArgs -join ' ')"
     }
 }
 
@@ -30,7 +34,7 @@ try {
         throw 'Working tree is not clean. Commit or stash changes before releasing.'
     }
 
-    Invoke-Git -Args @('fetch', '--tags', 'origin')
+    Invoke-Git fetch --tags origin
 
     $existingTag = git tag --list $Version
     if ($existingTag) {
@@ -53,11 +57,11 @@ try {
         return
     }
 
-    Invoke-Git -Args @('tag', '-a', $Version, '-m', "Release $Version")
+    Invoke-Git tag -a $Version -m "Release $Version"
     Write-Host "Created tag: $Version"
 
     if ($PushTag) {
-        Invoke-Git -Args @('push', 'origin', $Version)
+        Invoke-Git push origin $Version
         Write-Host "Pushed tag: $Version"
     }
     else {
