@@ -34,6 +34,22 @@ class WebApiTests(unittest.TestCase):
         for key in ('prefs', 'profiles', 'tasks', 'memory_notes', 'runtime'):
             self.assertIn(key, payload)
 
+    def test_api_security_headers_present_on_success(self):
+        response = self.client.get('/api/state')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get('x-content-type-options'), 'nosniff')
+        self.assertEqual(response.headers.get('x-frame-options'), 'DENY')
+        self.assertEqual(response.headers.get('referrer-policy'), 'no-referrer')
+        self.assertEqual(response.headers.get('cache-control'), 'no-store')
+
+    def test_api_security_headers_present_on_error(self):
+        response = self.client.post('/api/chat', json={'message': 'hello', 'mode': 'invalid'})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers.get('x-content-type-options'), 'nosniff')
+        self.assertEqual(response.headers.get('x-frame-options'), 'DENY')
+        self.assertEqual(response.headers.get('referrer-policy'), 'no-referrer')
+        self.assertEqual(response.headers.get('cache-control'), 'no-store')
+
     def test_invalid_profile_switch_returns_400(self):
         response = self.client.post('/api/profiles/switch', json={'name': 'does-not-exist'})
         self.assertEqual(response.status_code, 400)

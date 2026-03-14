@@ -126,12 +126,18 @@ async def api_guardrails(request: Request, call_next):
     path = request.url.path
     start_time = time.monotonic()
     request_id = request.headers.get("x-request-id") or uuid4().hex
+    is_api = path.startswith("/api/")
 
-    def with_request_id(response: JSONResponse):
+    def with_api_headers(response: JSONResponse):
         response.headers["x-request-id"] = request_id
+        if is_api:
+            response.headers["x-content-type-options"] = "nosniff"
+            response.headers["x-frame-options"] = "DENY"
+            response.headers["referrer-policy"] = "no-referrer"
+            response.headers["cache-control"] = "no-store"
         return response
 
-    if path.startswith("/api/") and request.method in {"POST", "PUT", "PATCH"}:
+    if is_api and request.method in {"POST", "PUT", "PATCH"}:
         body = await request.body()
         if len(body) > MAX_REQUEST_BYTES:
             response = JSONResponse(
@@ -142,16 +148,16 @@ async def api_guardrails(request: Request, call_next):
                 },
                 status_code=413,
             )
-            response = with_request_id(response)
+            response = with_api_headers(response)
             _log_api_request(request_id, request, response.status_code, start_time)
             return response
 
-    if path.startswith("/api/") and _is_rate_limited(request):
+    if is_api and _is_rate_limited(request):
         response = JSONResponse(
             {"error": "Too many requests. Please try again shortly."},
             status_code=429,
         )
-        response = with_request_id(response)
+        response = with_api_headers(response)
         _log_api_request(request_id, request, response.status_code, start_time)
         return response
 
@@ -161,7 +167,7 @@ async def api_guardrails(request: Request, call_next):
         if path.startswith("/api/"):
             _log_api_request(request_id, request, 500, start_time)
         raise
-    response.headers["x-request-id"] = request_id
+    response = with_api_headers(response)
     if path.startswith("/api/"):
         _log_api_request(request_id, request, response.status_code, start_time)
     return response
