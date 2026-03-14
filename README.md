@@ -1,6 +1,6 @@
 # Aiden - The Smart AI Companion
 
-> **🎉 PRODUCTION READY: 26 Features | Azure Deployable | Fully Configured**
+> **🎉 PRODUCTION READY: 26 Features | Local-First | Fully Configured**
 
 Aiden is a local AI assistant with:
 - Friendly, teacher-like personality
@@ -26,10 +26,10 @@ Aiden is a local AI assistant with:
 
 | Task | Link |
 |------|------|
-| **Deploy to Azure** | See [`.azure/QUICKSTART.md`](.azure/QUICKSTART.md) |
-| **Installation Guide** | See [`.azure/INSTALL_TOOLS.md`](.azure/INSTALL_TOOLS.md) |
-| **Deployment Plan** | See [`.azure/plan.copilotmd`](.azure/plan.copilotmd) |
 | **Run Locally** | See Section 1) Setup below |
+| **CLI Mode** | See Section 2) Run CLI |
+| **Web UI** | See Section 4) Run Web UI |
+| **Voice Mode** | See Section 5) Run Voice Mode |
 
 ---
 
