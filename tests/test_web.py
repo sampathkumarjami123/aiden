@@ -63,6 +63,42 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('error', third.json())
 
 
+class InputValidationTests(unittest.TestCase):
+    """Verify that Pydantic Field(max_length=...) constraints return 422."""
+
+    def setUp(self):
+        self.client = TestClient(app)
+        aiden_web._clear_rate_limit_state()
+
+    def test_chat_message_too_long_returns_422(self):
+        response = self.client.post('/api/chat', json={'message': 'x' * 4001})
+        self.assertEqual(response.status_code, 422)
+
+    def test_task_text_too_long_returns_422(self):
+        response = self.client.post('/api/tasks/add', json={'text': 'z' * 501})
+        self.assertEqual(response.status_code, 422)
+
+    def test_memory_note_too_long_returns_422(self):
+        response = self.client.post('/api/memory/add', json={'note': 'n' * 1001})
+        self.assertEqual(response.status_code, 422)
+
+    def test_memory_search_query_too_long_returns_422(self):
+        response = self.client.post('/api/memory/search', json={'query': 'q' * 501})
+        self.assertEqual(response.status_code, 422)
+
+    def test_profile_name_too_long_returns_422(self):
+        response = self.client.post('/api/profiles/create', json={'name': 'p' * 101})
+        self.assertEqual(response.status_code, 422)
+
+    def test_task_postpone_zero_days_returns_422(self):
+        response = self.client.post('/api/tasks/postpone', json={'task_id': 1, 'days': 0})
+        self.assertEqual(response.status_code, 422)
+
+    def test_task_postpone_exceeds_max_days_returns_422(self):
+        response = self.client.post('/api/tasks/postpone', json={'task_id': 1, 'days': 366})
+        self.assertEqual(response.status_code, 422)
+
+
 class TaskApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)

@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from aiden_core import AidenEngine, DATA_ROOT, MODES
 
@@ -179,23 +179,23 @@ def generic_error_handler(_: Request, exc: Exception):
 
 
 class ChatPayload(BaseModel):
-    message: str
-    mode: str | None = None
-    name: str | None = None
+    message: str = Field(max_length=4000)
+    mode: str | None = Field(default=None, max_length=50)
+    name: str | None = Field(default=None, max_length=100)
     short_responses: bool | None = None
-    learning_style: str | None = None
-    focus_goal: str | None = None
-    interests: str | None = None
+    learning_style: str | None = Field(default=None, max_length=500)
+    focus_goal: str | None = Field(default=None, max_length=500)
+    interests: str | None = Field(default=None, max_length=500)
 
 
 class ProfilePayload(BaseModel):
-    name: str
+    name: str = Field(max_length=100)
 
 
 class TaskPayload(BaseModel):
-    text: str
-    due_date: str | None = None
-    priority: str | None = None
+    text: str = Field(max_length=500)
+    due_date: str | None = Field(default=None, max_length=10)
+    priority: str | None = Field(default=None, max_length=10)
 
 
 class TaskIdPayload(BaseModel):
@@ -204,26 +204,26 @@ class TaskIdPayload(BaseModel):
 
 class TaskEditPayload(BaseModel):
     task_id: int
-    text: str | None = None
-    due_date: str | None = None
-    priority: str | None = None
+    text: str | None = Field(default=None, max_length=500)
+    due_date: str | None = Field(default=None, max_length=10)
+    priority: str | None = Field(default=None, max_length=10)
 
 
 class TaskPostponePayload(BaseModel):
     task_id: int
-    days: int = 1
+    days: int = Field(default=1, ge=1, le=365)
 
 
 class MemoryPayload(BaseModel):
-    note: str
+    note: str = Field(max_length=1000)
 
 
 class MemorySearchPayload(BaseModel):
-    query: str
+    query: str = Field(max_length=500)
 
 
 class ProfileImportPayload(BaseModel):
-    profile_name: str
+    profile_name: str = Field(max_length=100)
     profile_data: dict
 
 
