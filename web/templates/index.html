@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aiden - Smart AI Companion</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="aurora"></div>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Aiden</h1>
+          <p>The Smart AI Companion</p>
+        </div>
+        <div class="runtime-wrap">
+          <div
+            id="runtimePill"
+            class="pill {% if runtime.has_model %}live{% else %}local{% endif %}"
+            aria-live="polite"
+          >
+            {% if runtime.has_model %}Live Model{% else %}Local Dev Mode{% endif %}
+          </div>
+          <button id="runtimeInfoBtn" type="button" class="pill runtime-info-trigger" aria-expanded="false">
+            Runtime Details
+          </button>
+          <button id="settingsBtn" type="button" class="pill settings-trigger" aria-expanded="false" title="Settings">
+            ⚙️
+          </button>
+          <button id="statsBtn" type="button" class="pill stats-trigger" aria-expanded="false" title="Chat Statistics">
+            📊
+          </button>
+        </div>
+      </header>
+
+      <section id="runtimeInfoPanel" class="runtime-info-panel hidden" aria-live="polite">
+        <div><strong>model:</strong> <span id="runtimeModelValue">{% if runtime.has_model %}connected{% else %}disconnected{% endif %}</span></div>
+        <div><strong>dev mode:</strong> <span id="runtimeDevValue">{% if runtime.dev_mode %}enabled{% else %}disabled{% endif %}</span></div>
+        <div><strong>profile:</strong> <span id="runtimeProfileValue">{{ prefs.active_profile }}</span></div>
+        <div class="runtime-panel-actions">
+          <span id="lastCopiedAt" class="last-copied-at"></span>
+          <button id="copyRuntimeBtn" type="button" title="Ctrl+Shift+R">Copy Runtime JSON</button>
+          <button id="copyProfileBtn" type="button">Copy Profile Name</button>
+          <button id="copyDebugBtn" type="button" title="Ctrl+Shift+D">Copy Full Debug Snapshot</button>
+        </div>
+        <div class="shortcuts-legend">
+          <span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>D</kbd> debug snapshot</span>
+          <span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>R</kbd> runtime JSON</span>
+          <span><kbd>Ctrl</kbd><kbd>/</kbd> focus chat</span>
+        </div>
+      </section>
+
+      <section id="settingsPanel" class="settings-panel hidden" aria-live="polite">
+        <h3>Settings</h3>
+        <div class="settings-group">
+          <label>
+            <input id="darkModeToggle" type="checkbox" />
+            Dark Mode
+          </label>
+        </div>
+        <div class="settings-group">
+          <label>Font Size</label>
+          <div class="settings-slider-wrap">
+            <input id="fontSizeSlider" type="range" min="12" max="18" value="16" />
+            <span id="fontSizeValue">16px</span>
+          </div>
+        </div>
+        <div class="settings-group">
+          <label>
+            <input id="compactModeToggle" type="checkbox" />
+            Compact Chat Bubbles
+          </label>
+        </div>
+        <div class="settings-group">
+          <label>
+            <input id="soundToggle" type="checkbox" />
+            Sound Notifications
+          </label>
+        </div>
+        <div class="settings-group">
+          <label for="themeSelect">Theme:</label>
+          <select id="themeSelect" class="theme-select">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="nord">Nord</option>
+            <option value="dracula">Dracula</option>
+            <option value="solarized">Solarized</option>
+          </select>
+        </div>
+        <div class="settings-group">
+          <button id="bookmarksBtn" type="button" class="settings-btn">📌 View Bookmarks</button>
+        </div>
+        <div class="settings-actions">
+          <button id="resetSettingsBtn" type="button" class="settings-reset">Reset to Defaults</button>
+        </div>
+      </section>
+
+      <section id="bookmarksPanel" class="bookmarks-panel hidden">
+        <h3>Bookmarked Messages</h3>
+        <div id="bookmarksList" class="bookmarks-list"></div>
+      </section>
+
+      <section id="bookmarksPanel" class="bookmarks-panel hidden">
+        <h3>📌 Bookmarked Messages</h3>
+        <div id="bookmarksList" class="bookmarks-list"></div>
+      </section>
+
+      <section id="statsPanel" class="stats-panel hidden" aria-live="polite">
+        <h3>Chat Statistics</h3>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">Total Messages</span>
+            <span id="statTotalMessages" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Your Messages</span>
+            <span id="statUserMessages" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Aiden Messages</span>
+            <span id="statAidenMessages" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Words</span>
+            <span id="statTotalWords" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Avg Message Length</span>
+            <span id="statAvgLength" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Conversation Duration</span>
+            <span id="statDuration" class="stat-value">0m</span>
+          </div>
+        </div>
+        <div class="stats-section">
+          <h4>Top Words</h4>
+          <div id="statTopWords" class="top-words-list"></div>
+        </div>
+      </section>
+
+      <section class="controls">
+        <label>
+          Mode
+          <select id="mode">
+            {% for mode in modes %}
+            <option value="{{ mode }}" {% if prefs.mode == mode %}selected{% endif %}>{{ mode }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Name
+          <input id="name" type="text" value="{{ prefs.name }}" />
+        </label>
+        <label>
+          Learning Style
+          <input id="learningStyle" type="text" value="{{ prefs.learning_style }}" />
+        </label>
+        <label class="toggle-wrap">
+          <input id="short" type="checkbox" {% if prefs.short_responses == "true" %}checked{% endif %} />
+          <span>Concise Responses</span>
+        </label>
+        <label>
+          Focus Goal
+          <input id="focusGoal" type="text" value="{{ prefs.focus_goal }}" />
+        </label>
+        <label>
+          Interests
+          <input id="interests" type="text" value="{{ prefs.interests }}" />
+        </label>
+      </section>
+
+      <section class="actions">
+        <button id="resetBtn" type="button">Reset Chat</button>
+        <button id="exportBtn" type="button">Export Chat</button>
+      </section>
+
+      <section
+        id="localBanner"
+        class="runtime-banner {% if runtime.has_model %}hidden{% endif %}"
+        aria-live="polite"
+      >
+        <div class="runtime-copy">
+          Running in local dev fallback. Add your API key in .env to enable full model answers.
+        </div>
+        <button id="copyEnvBtn" type="button">Copy .env Setup</button>
+      </section>
+
+      <section class="utility-grid">
+        <article class="panel">
+          <h2>Profiles</h2>
+          <div class="row">
+            <select id="profileSelect">
+              {% for profile in profiles %}
+              <option value="{{ profile }}" {% if prefs.active_profile == profile %}selected{% endif %}>{{ profile }}</option>
+              {% endfor %}
+            </select>
+            <button id="switchProfileBtn" type="button">Switch</button>
+          </div>
+          <div class="row">
+            <input id="newProfileName" type="text" placeholder="new profile name" />
+            <button id="createProfileBtn" type="button">Create</button>
+          </div>
+          <div class="row">
+            <button id="deleteProfileBtn" type="button" class="danger">Delete Active</button>
+          </div>
+          <div class="row">
+            <button id="exportProfileBtn" type="button">Export Active</button>
+            <button id="importProfileBtn" type="button">Import</button>
+          </div>
+          <div class="row one">
+            <textarea id="profileJsonInput" rows="5" placeholder='Paste profile JSON payload: {"profile_name":"...","profile":{...}}'></textarea>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>Tasks</h2>
+            <span id="overdueBadge" class="overdue-badge hidden"></span>
+          </div>
+          <div class="row">
+            <input id="taskInput" type="text" placeholder="Add a task..." />
+            <button id="addTaskBtn" type="button">Add</button>
+          </div>
+          <div class="row three">
+            <input id="taskDueDate" type="date" />
+            <select id="taskPriority">
+              <option value="high">high</option>
+              <option value="medium" selected>medium</option>
+              <option value="low">low</option>
+            </select>
+            <span class="hint">priority and due date</span>
+          </div>
+          <div class="row three">
+            <input id="taskEditId" type="number" min="1" placeholder="task id" />
+            <button id="editTaskBtn" type="button">Edit Selected</button>
+            <button id="postponeTaskBtn" type="button">+1 Day</button>
+          </div>
+          <ul id="taskList" class="task-list"></ul>
+          <div id="taskToolbar" class="task-toolbar">
+            <div class="task-filter-btns">
+              <button type="button" id="filterAll" class="filter-btn active">All</button>
+              <button type="button" id="filterPending" class="filter-btn">Pending</button>
+              <button type="button" id="filterDone" class="filter-btn">Done</button>
+            </div>
+            <select id="taskSort">
+              <option value="added">Sort: added</option>
+              <option value="due">Sort: due date</option>
+              <option value="priority">Sort: priority</option>
+            </select>
+          </div>
+          <div class="row">
+            <button id="clearTasksBtn" type="button" class="danger">Clear Tasks</button>
+          </div>
+        </article>
+
+        <article class="panel panel-full">
+          <h2>Memory Notes</h2>
+          <div class="row">
+            <input id="memoryInput" type="text" placeholder="Save a memory note about user preferences..." />
+            <button id="addMemoryBtn" type="button">Save</button>
+          </div>
+          <div class="row">
+            <input id="memorySearchInput" type="text" placeholder="Search memory notes..." />
+            <button id="searchMemoryBtn" type="button">Search</button>
+          </div>
+          <ul id="memorySearchResults" class="memory-list"></ul>
+          <ul id="memoryList" class="memory-list"></ul>
+          <div class="row">
+            <button id="clearMemoryBtn" type="button" class="danger">Clear Memory Notes</button>
+          </div>
+        </article>
+      </section>
+
+      <div id="conversationPanel" class="conversation-panel">
+        <div class="conversation-header">
+          <span id="currentConversation" class="current-conversation">Current Conversation</span>
+          <button id="toggleConversationListBtn" type="button" class="conversation-toggle">📋</button>
+        </div>
+        <div class="conversation-tagging">
+          <input id="conversationTag" type="text" placeholder="Add tag (press Enter)" class="tag-input" />
+          <div id="conversationTags" class="tags-display"></div>
+        </div>
+        <div id="conversationActions" class="conversation-actions">
+          <button id="newConversationBtn" type="button" class="conversation-action">+ New</button>
+          <button id="renameConversationBtn" type="button" class="conversation-action">Rename</button>
+          <button id="deleteConversationBtn" type="button" class="conversation-action danger">Delete</button>
+        </div>
+        <ul id="conversationList" class="conversation-list hidden"></ul>
+      </div>
+
+      <div id="chatSearchBar" class="chat-search-bar">
+        <input id="chatSearchInput" type="text" placeholder="Search messages..." />
+        <div class="chat-search-controls">
+          <span id="chatSearchCounter" class="chat-search-counter">0 / 0</span>
+          <button id="chatSearchPrevBtn" type="button" class="chat-search-nav" title="Previous match">↑</button>
+          <button id="chatSearchNextBtn" type="button" class="chat-search-nav" title="Next match">↓</button>
+          <button id="chatSearchClearBtn" type="button" class="chat-search-clear" title="Clear search">✕</button>
+        </div>
+      </div>
+
+      <section id="chat" class="chat"></section>
+      <div id="messageContextMenu" class="message-context-menu hidden">
+        <button type="button" id="contextCopyText">Copy Text</button>
+        <button type="button" id="contextCopyFull">Copy Full Message</button>
+        <button type="button" id="contextDelete" class="danger">Delete</button>
+        <button type="button" id="contextPin">Pin Message</button>
+      </div>
+      <div id="typingIndicator" class="typing-indicator hidden">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+
+      <form id="chatForm" class="composer">
+        <div class="chat-input-wrapper">
+          <input id="message" type="text" placeholder="Ask Aiden anything..." autocomplete="off" />
+          <ul id="autocompleteList" class="autocomplete-dropdown hidden"></ul>
+        </div>
+        <button type="submit">Send</button>
+      </form>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
