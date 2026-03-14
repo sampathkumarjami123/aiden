@@ -24,17 +24,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Prepare CI log directory
+        run: mkdir -p ci-logs
+
       - name: Compile check
         run: |
-          python -m compileall aiden.py aiden_core.py aiden_web.py aiden_desktop.py aiden_voice.py
+          set -o pipefail
+          python -m compileall aiden.py aiden_core.py aiden_web.py aiden_desktop.py aiden_voice.py 2>&1 | tee ci-logs/compile.log
 
       - name: Unit tests
         run: |
-          python -m unittest discover -s tests -p "test_*.py" -v
+          set -o pipefail
+          python -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee ci-logs/unittest.log
 
       - name: Web app smoke test
         run: |
-          python -m uvicorn aiden_web:app --host 127.0.0.1 --port 8000 &
+          python -m uvicorn aiden_web:app --host 127.0.0.1 --port 8000 > ci-logs/uvicorn.log 2>&1 &
           SERVER_PID=$!
           for i in {1..30}; do
             if curl --fail --silent --show-error http://127.0.0.1:8000/health > /dev/null; then
@@ -48,3 +53,11 @@ jobs:
             fi
           done
           kill $SERVER_PID
+
+      - name: Upload CI logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: ci-logs/
+          if-no-files-found: ignore
