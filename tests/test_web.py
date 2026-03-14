@@ -1,10 +1,17 @@
 import unittest
+import shutil
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 import aiden_web
 from aiden_web import app, engine
+from aiden_core import PROFILE_EXPORT_DIR
+
+
+def _cleanup_profile_exports() -> None:
+    if PROFILE_EXPORT_DIR.exists():
+        shutil.rmtree(PROFILE_EXPORT_DIR, ignore_errors=True)
 
 
 class WebApiTests(unittest.TestCase):
@@ -258,6 +265,7 @@ class ProfileApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
         aiden_web._clear_rate_limit_state()
+        _cleanup_profile_exports()
         # Ensure the test profile does not exist before each test
         if self._TEST_PROFILE in engine.list_profiles():
             engine.delete_profile(self._TEST_PROFILE)
@@ -266,6 +274,7 @@ class ProfileApiTests(unittest.TestCase):
         # Clean up any profile created during the test
         if self._TEST_PROFILE in engine.list_profiles():
             engine.delete_profile(self._TEST_PROFILE)
+        _cleanup_profile_exports()
 
     def test_state_includes_profiles_list(self):
         response = self.client.get('/api/state')
