@@ -16,6 +16,17 @@ app.mount("/static", StaticFiles(directory="web/static"), name="static")
 templates = Jinja2Templates(directory="web/templates")
 
 
+@app.exception_handler(ValueError)
+def value_error_handler(_: Request, exc: ValueError):
+    return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.exception_handler(Exception)
+def generic_error_handler(_: Request, exc: Exception):
+    _ = exc
+    return JSONResponse({"error": "Internal server error."}, status_code=500)
+
+
 class ChatPayload(BaseModel):
     message: str
     mode: str | None = None
@@ -102,51 +113,45 @@ def get_state():
 
 @app.post("/api/chat")
 def chat(payload: ChatPayload):
-    try:
-        if payload.mode:
-            engine.set_mode(payload.mode)
+    if payload.mode:
+        engine.set_mode(payload.mode)
 
-        if payload.name and payload.name.strip():
-            engine.set_name(payload.name.strip())
+    if payload.name and payload.name.strip():
+        engine.set_name(payload.name.strip())
 
-        if payload.short_responses is not None:
-            engine.set_short_responses(payload.short_responses)
+    if payload.short_responses is not None:
+        engine.set_short_responses(payload.short_responses)
 
-        if payload.learning_style is not None and payload.learning_style.strip():
-            engine.set_learning_style(payload.learning_style)
+    if payload.learning_style is not None and payload.learning_style.strip():
+        engine.set_learning_style(payload.learning_style)
 
-        if payload.focus_goal is not None:
-            engine.set_focus_goal(payload.focus_goal)
+    if payload.focus_goal is not None:
+        engine.set_focus_goal(payload.focus_goal)
 
-        if payload.interests is not None:
-            engine.set_interests(payload.interests)
+    if payload.interests is not None:
+        engine.set_interests(payload.interests)
 
-        handled, command_output, meta = engine.handle_command(payload.message)
-        if handled:
-            return JSONResponse(
-                {
-                    "answer": command_output,
-                    "prefs": engine.get_preferences(),
-                    "meta": meta,
-                    "runtime": engine.get_runtime_info(),
-                }
-            )
-
-        answer = engine.chat(payload.message)
-        prefs = engine.get_preferences()
+    handled, command_output, meta = engine.handle_command(payload.message)
+    if handled:
         return JSONResponse(
             {
-                "answer": answer,
-                "prefs": prefs,
-                "meta": {"type": "chat"},
+                "answer": command_output,
+                "prefs": engine.get_preferences(),
+                "meta": meta,
                 "runtime": engine.get_runtime_info(),
             }
         )
-    except Exception as exc:
-        return JSONResponse(
-            {"error": str(exc)},
-            status_code=400,
-        )
+
+    answer = engine.chat(payload.message)
+    prefs = engine.get_preferences()
+    return JSONResponse(
+        {
+            "answer": answer,
+            "prefs": prefs,
+            "meta": {"type": "chat"},
+            "runtime": engine.get_runtime_info(),
+        }
+    )
 
 
 @app.post("/api/reset")

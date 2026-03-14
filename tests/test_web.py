@@ -23,6 +23,21 @@ class WebApiTests(unittest.TestCase):
         for key in ('prefs', 'profiles', 'tasks', 'memory_notes', 'runtime'):
             self.assertIn(key, payload)
 
+    def test_invalid_profile_switch_returns_400(self):
+        response = self.client.post('/api/profiles/switch', json={'name': 'does-not-exist'})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.json())
+
+    def test_invalid_task_done_returns_400(self):
+        response = self.client.post('/api/tasks/done', json={'task_id': 99999})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.json())
+
+    def test_invalid_chat_mode_returns_400(self):
+        response = self.client.post('/api/chat', json={'message': 'hello', 'mode': 'invalid'})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.json())
+
 
 if __name__ == '__main__':
     unittest.main()
