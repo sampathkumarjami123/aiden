@@ -6,4 +6,6 @@ preferences.json
 profiles.json
 chat_exports/
 .azure/
+infra/
+.github/agents/Azure_Static_Web_App.chatmode.md
 *.log
