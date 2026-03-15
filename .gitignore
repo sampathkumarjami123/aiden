@@ -11,3 +11,4 @@ infra/
 .github/agents/Azure_Static_Web_App.chatmode.md
 *.log
 logs/
+.aiden-web.pid
