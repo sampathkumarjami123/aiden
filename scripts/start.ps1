@@ -1,8 +1,9 @@
 param(
-    [ValidateSet('web', 'cli', 'desktop', 'voice')]
+    [ValidateSet('web', 'cli', 'desktop', 'voice', 'doctor')]
     [string]$Mode = 'web',
     [int]$Port = 8000,
-    [switch]$Reload
+    [switch]$Reload,
+    [switch]$OpenBrowser
 )
 
 Set-StrictMode -Version Latest
@@ -33,6 +34,16 @@ try {
         }
         'voice' {
             & $PythonExe 'aiden_voice.py'
+        }
+        'doctor' {
+            $baseUrl = "http://127.0.0.1:$Port"
+            if ($OpenBrowser) {
+                Start-Process $baseUrl | Out-Null
+            }
+            & (Join-Path $PSScriptRoot 'runtime-check.ps1') -BaseUrl $baseUrl
+            if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+            }
         }
     }
 }

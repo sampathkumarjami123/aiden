@@ -96,6 +96,8 @@ Use these helper scripts after setup:
 .\scripts\start.ps1 -Mode cli
 .\scripts\start.ps1 -Mode desktop
 .\scripts\start.ps1 -Mode voice
+.\scripts\start.ps1 -Mode doctor
+.\scripts\start.ps1 -Mode doctor -OpenBrowser
 .\scripts\test.ps1
 .\scripts\quality-gate.ps1
 .\scripts\health-check.ps1
@@ -195,7 +197,7 @@ In voice mode:
 - `aiden_voice.py`: voice-first app
 - `aiden_prompt.md`: system instruction and personality
 - `scripts/setup.ps1`: creates virtual environment, installs dependencies, and bootstraps `.env`
-- `scripts/start.ps1`: one-command launcher for web, cli, desktop, and voice modes
+- `scripts/start.ps1`: one-command launcher for web, cli, desktop, voice, and doctor diagnostics mode
 - `scripts/test.ps1`: runs unit tests from the `tests/` folder
 - `scripts/quality-gate.ps1`: runs tests plus health checks as one local gate
 - `scripts/health-check.ps1`: compile and web endpoint smoke test
