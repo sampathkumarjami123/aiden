@@ -217,6 +217,18 @@ class AidenDesktopApp:
         self.tasks_listbox = tk.Listbox(tasks_box, height=4)
         self.tasks_listbox.grid(row=3, column=0, columnspan=2, padx=8, pady=(0, 8), sticky="ew")
 
+        tk.Label(tasks_box, text="Show", bg="#f4efe6").grid(row=4, column=0, padx=8, sticky="w")
+        self.task_filter_var = tk.StringVar(value="all")
+        task_filter_combo = ttk.Combobox(
+            tasks_box,
+            textvariable=self.task_filter_var,
+            values=["all", "pending", "done"],
+            state="readonly",
+            width=10,
+        )
+        task_filter_combo.grid(row=4, column=1, padx=4, pady=(0, 8), sticky="e")
+        task_filter_combo.bind("<<ComboboxSelected>>", lambda _event: self._render_tasks())
+
         done_task_btn = tk.Button(
             tasks_box,
             text="Done",
@@ -226,7 +238,7 @@ class AidenDesktopApp:
             relief="flat",
             padx=10,
         )
-        done_task_btn.grid(row=4, column=0, padx=8, pady=(0, 8), sticky="w")
+        done_task_btn.grid(row=5, column=0, padx=8, pady=(0, 8), sticky="w")
 
         remove_task_btn = tk.Button(
             tasks_box,
@@ -237,7 +249,7 @@ class AidenDesktopApp:
             relief="flat",
             padx=10,
         )
-        remove_task_btn.grid(row=4, column=0, padx=8, pady=(0, 8))
+        remove_task_btn.grid(row=5, column=0, padx=8, pady=(0, 8))
 
         clear_task_btn = tk.Button(
             tasks_box,
@@ -248,7 +260,7 @@ class AidenDesktopApp:
             relief="flat",
             padx=10,
         )
-        clear_task_btn.grid(row=4, column=1, padx=4, pady=(0, 8), sticky="e")
+        clear_task_btn.grid(row=5, column=1, padx=4, pady=(0, 8), sticky="e")
 
         edit_task_btn = tk.Button(
             tasks_box,
@@ -259,7 +271,7 @@ class AidenDesktopApp:
             relief="flat",
             padx=10,
         )
-        edit_task_btn.grid(row=5, column=0, padx=8, pady=(0, 8), sticky="w")
+        edit_task_btn.grid(row=6, column=0, padx=8, pady=(0, 8), sticky="w")
 
         postpone_task_btn = tk.Button(
             tasks_box,
@@ -270,7 +282,7 @@ class AidenDesktopApp:
             relief="flat",
             padx=10,
         )
-        postpone_task_btn.grid(row=5, column=1, padx=4, pady=(0, 8), sticky="e")
+        postpone_task_btn.grid(row=6, column=1, padx=4, pady=(0, 8), sticky="e")
 
         memory_box = tk.LabelFrame(advanced, text="Memory Notes", bg="#f4efe6")
         memory_box.pack(side="left", fill="both", padx=(10, 0))
@@ -441,6 +453,13 @@ class AidenDesktopApp:
     def _render_tasks(self) -> None:
         self.tasks_listbox.delete(0, "end")
         tasks = self.engine.list_tasks()
+
+        filter_mode = (self.task_filter_var.get().strip().lower() or "all")
+        if filter_mode == "pending":
+            tasks = [task for task in tasks if not task.get("done")]
+        elif filter_mode == "done":
+            tasks = [task for task in tasks if task.get("done")]
+
         if not tasks:
             self.tasks_listbox.insert("end", "(no tasks)")
             return

@@ -5,6 +5,7 @@
   --ink: #18222f;
   --muted: #4a5f7a;
   --brand: #f16436;
+  --accent: #0c7b76;
   --brand2: #0c7b76;
   --line: #d9cdbd;
 }
@@ -474,6 +475,18 @@ mark {
   animation: rise 220ms ease;
 }
 
+.bubble.streaming::after {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  opacity: 0.55;
+  animation: stream-caret 0.85s steps(1, end) infinite;
+}
+
 .typing-indicator {
   display: flex;
   gap: 4px;
@@ -525,6 +538,17 @@ mark {
   to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+@keyframes stream-caret {
+  0%,
+  45% {
+    opacity: 0;
+  }
+  46%,
+  100% {
+    opacity: 0.55;
   }
 }
 
@@ -659,6 +683,15 @@ body.compact-mode .suggested-reply-btn {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
+}
+
+.composer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.stop-stream-btn {
+  background: linear-gradient(130deg, #8b4c4c, #b55858);
 }
 
 .chat-input-wrapper {

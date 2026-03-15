@@ -1,3 +1,5 @@
+import json
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 import shutil
 from unittest.mock import patch
@@ -50,6 +52,19 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(response.headers.get('referrer-policy'), 'no-referrer')
         self.assertEqual(response.headers.get('cache-control'), 'no-store')
 
+    def test_stream_api_security_headers_present_on_success(self):
+        response = self.client.post('/api/chat/stream', json={'message': 'hello'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get('x-content-type-options'), 'nosniff')
+        self.assertEqual(response.headers.get('x-frame-options'), 'DENY')
+        self.assertEqual(response.headers.get('referrer-policy'), 'no-referrer')
+        self.assertEqual(response.headers.get('cache-control'), 'no-store')
+
+    def test_stream_invalid_chat_mode_returns_400(self):
+        response = self.client.post('/api/chat/stream', json={'message': 'hello', 'mode': 'invalid'})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.json())
+
     def test_invalid_profile_switch_returns_400(self):
         response = self.client.post('/api/profiles/switch', json={'name': 'does-not-exist'})
         self.assertEqual(response.status_code, 400)
@@ -73,6 +88,13 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('x-request-id', response.headers)
         self.assertIn('error', response.json())
 
+    def test_stream_request_too_large_returns_413(self):
+        with patch('aiden_web.MAX_REQUEST_BYTES', 8):
+            response = self.client.post('/api/chat/stream', json={'message': 'this payload is too large'})
+        self.assertEqual(response.status_code, 413)
+        self.assertIn('x-request-id', response.headers)
+        self.assertIn('error', response.json())
+
     def test_rate_limit_returns_429(self):
         with patch('aiden_web.RATE_LIMIT_REQUESTS_PER_WINDOW', 2):
             first = self.client.get('/api/state')
@@ -85,6 +107,87 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('x-request-id', third.headers)
         self.assertIn('error', third.json())
 
+    def test_stream_rate_limit_returns_429(self):
+        with patch('aiden_web.RATE_LIMIT_REQUESTS_PER_WINDOW', 2):
+            first = self.client.post('/api/chat/stream', json={'message': 'hello'})
+            second = self.client.post('/api/chat/stream', json={'message': 'hello'})
+            third = self.client.post('/api/chat/stream', json={'message': 'hello'})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(third.status_code, 429)
+        self.assertIn('x-request-id', third.headers)
+        self.assertIn('error', third.json())
+
+
+class StreamChatApiTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        aiden_web._clear_rate_limit_state()
+
+    @staticmethod
+    def _parse_ndjson(response_text: str):
+        lines = [line.strip() for line in response_text.splitlines() if line.strip()]
+        return [json.loads(line) for line in lines]
+
+    def test_stream_chat_returns_chunk_and_final_payload(self):
+        with patch.object(engine, 'handle_command', return_value=(False, '', {})):
+            with patch.object(engine, 'chat_stream', return_value=iter(['Hello', ' there'])):
+                response = self.client.post('/api/chat/stream', json={'message': 'Hi'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('application/x-ndjson', response.headers.get('content-type', ''))
+
+        events = self._parse_ndjson(response.text)
+        self.assertGreaterEqual(len(events), 2)
+        self.assertEqual(events[0]['type'], 'chunk')
+        self.assertEqual(events[0]['text'], 'Hello')
+        self.assertEqual(events[1]['type'], 'chunk')
+        self.assertEqual(events[1]['text'], ' there')
+        self.assertEqual(events[-1]['type'], 'final')
+        self.assertEqual(events[-1]['meta']['type'], 'chat')
+        self.assertIn('prefs', events[-1])
+        self.assertIn('runtime', events[-1])
+
+    def test_stream_chat_handles_command_output(self):
+        with patch.object(engine, 'handle_command', return_value=(True, 'Commands:\n  /help', {'type': 'help'})):
+            response = self.client.post('/api/chat/stream', json={'message': '/help'})
+
+        self.assertEqual(response.status_code, 200)
+        events = self._parse_ndjson(response.text)
+        self.assertGreaterEqual(len(events), 2)
+        self.assertEqual(events[0]['type'], 'chunk')
+        self.assertIn('/help', events[0]['text'])
+        self.assertEqual(events[-1]['type'], 'final')
+        self.assertEqual(events[-1]['meta']['type'], 'help')
+
+    def test_stream_chat_emits_error_event_when_stream_fails(self):
+        with patch.object(engine, 'handle_command', return_value=(False, '', {})):
+            with patch.object(engine, 'chat_stream', side_effect=RuntimeError('stream failure')):
+                response = self.client.post('/api/chat/stream', json={'message': 'Hi'})
+
+        self.assertEqual(response.status_code, 200)
+        events = self._parse_ndjson(response.text)
+        self.assertGreaterEqual(len(events), 2)
+        self.assertEqual(events[0]['type'], 'error')
+        self.assertIn('stream failure', events[0]['error'])
+        self.assertEqual(events[-1]['type'], 'final')
+        self.assertEqual(events[-1]['meta']['type'], 'error')
+
+    def test_stream_chat_timeout_emits_error_event(self):
+        with patch.object(engine, 'handle_command', return_value=(False, '', {})):
+            with patch.object(engine, 'chat_stream', return_value=iter(['slow chunk'])):
+                with patch('aiden_web.STREAM_MAX_SECONDS', -1):
+                    response = self.client.post('/api/chat/stream', json={'message': 'Hi'})
+
+        self.assertEqual(response.status_code, 200)
+        events = self._parse_ndjson(response.text)
+        self.assertGreaterEqual(len(events), 2)
+        self.assertEqual(events[0]['type'], 'error')
+        self.assertIn('Streaming response exceeded', events[0]['error'])
+        self.assertEqual(events[-1]['type'], 'final')
+        self.assertEqual(events[-1]['meta']['type'], 'error')
+
 
 class InputValidationTests(unittest.TestCase):
     """Verify that Pydantic Field(max_length=...) constraints return 422."""
@@ -95,6 +198,10 @@ class InputValidationTests(unittest.TestCase):
 
     def test_chat_message_too_long_returns_422(self):
         response = self.client.post('/api/chat', json={'message': 'x' * 4001})
+        self.assertEqual(response.status_code, 422)
+
+    def test_stream_chat_message_too_long_returns_422(self):
+        response = self.client.post('/api/chat/stream', json={'message': 'x' * 4001})
         self.assertEqual(response.status_code, 422)
 
     def test_task_text_too_long_returns_422(self):
@@ -222,6 +329,67 @@ class TaskApiTests(unittest.TestCase):
         response = self.client.post('/api/tasks/clear')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['tasks'], [])
+
+
+class ConcurrencyApiTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        aiden_web._clear_rate_limit_state()
+        self._orig_client = engine.client
+        self._orig_dev_mode = engine.dev_mode
+        engine.client = None
+        engine.dev_mode = True
+        engine.reset_chat()
+        engine.clear_tasks()
+
+    def tearDown(self):
+        engine.client = self._orig_client
+        engine.dev_mode = self._orig_dev_mode
+        engine.reset_chat()
+        engine.clear_tasks()
+
+    @staticmethod
+    def _post_chat(message: str):
+        with TestClient(app) as client:
+            response = client.post('/api/chat', json={'message': message})
+            data = response.json()
+            return response.status_code, data.get('answer', '')
+
+    @staticmethod
+    def _post_task(text: str):
+        with TestClient(app) as client:
+            response = client.post('/api/tasks/add', json={'text': text})
+            data = response.json()
+            return response.status_code, data.get('task', {})
+
+    def test_parallel_chat_requests_succeed_and_preserve_history_shape(self):
+        total = 8
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda i: self._post_chat(f'parallel chat {i}'), range(total)))
+
+        for status_code, answer in results:
+            self.assertEqual(status_code, 200)
+            self.assertTrue(answer)
+
+        # system prompt + (user, assistant) per request
+        self.assertEqual(len(engine.messages), 1 + (2 * total))
+
+    def test_parallel_task_add_requests_keep_unique_ids(self):
+        total = 10
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            results = list(pool.map(lambda i: self._post_task(f'parallel task {i}'), range(total)))
+
+        task_ids = []
+        for status_code, task in results:
+            self.assertEqual(status_code, 200)
+            self.assertIn('id', task)
+            task_ids.append(task['id'])
+
+        self.assertEqual(len(task_ids), total)
+        self.assertEqual(len(set(task_ids)), total)
+
+        listed = self.client.get('/api/tasks').json()['tasks']
+        self.assertEqual(len(listed), total)
 
 
 class MemoryApiTests(unittest.TestCase):

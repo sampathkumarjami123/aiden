@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Iterator, List, Tuple
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -55,6 +55,13 @@ SAFETY_BLOCKLIST = [
 class AidenEngine:
     def __init__(self) -> None:
         load_dotenv()
+
+        # Resolve data paths at construction time so each instance is isolated.
+        data_root = _resolve_data_root(os.getenv("AIDEN_DATA_DIR"))
+        self.profiles_file = data_root / "profiles.json"
+        self.preferences_file = data_root / "preferences.json"
+        self.chat_export_dir = data_root / "chat_exports"
+        self.profile_export_dir = data_root / "profile_exports"
 
         api_key = os.getenv("OPENAI_API_KEY")
         self.model = os.getenv("AIDEN_MODEL", "gpt-5.3-codex")
@@ -131,36 +138,33 @@ class AidenEngine:
             return 30
         return max(5, value)
 
-    @staticmethod
-    def load_preferences() -> Dict[str, str]:
-        default = AidenEngine._default_preferences()
-        if not PREFERENCES_FILE.exists():
+    def load_preferences(self) -> Dict[str, str]:
+        default = self._default_preferences()
+        if not self.preferences_file.exists():
             return default
         try:
-            loaded = json.loads(PREFERENCES_FILE.read_text(encoding="utf-8"))
-            return AidenEngine._sanitize_profile(loaded)
+            loaded = json.loads(self.preferences_file.read_text(encoding="utf-8"))
+            return self._sanitize_profile(loaded)
         except (json.JSONDecodeError, OSError):
             return default
 
-    @staticmethod
-    def save_preferences(preferences: Dict[str, str]) -> None:
-        PREFERENCES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PREFERENCES_FILE.write_text(
+    def save_preferences(self, preferences: Dict[str, str]) -> None:
+        self.preferences_file.parent.mkdir(parents=True, exist_ok=True)
+        self.preferences_file.write_text(
             json.dumps(preferences, indent=2),
             encoding="utf-8",
         )
 
-    @staticmethod
-    def load_profile_store() -> Dict[str, object]:
-        if PROFILES_FILE.exists():
+    def load_profile_store(self) -> Dict[str, object]:
+        if self.profiles_file.exists():
             try:
-                loaded = json.loads(PROFILES_FILE.read_text(encoding="utf-8"))
+                loaded = json.loads(self.profiles_file.read_text(encoding="utf-8"))
                 profiles = loaded.get("profiles", {})
                 active_profile = loaded.get("active_profile", "default")
                 if not isinstance(profiles, dict) or not profiles:
                     raise ValueError("Invalid profiles store")
                 sanitized_profiles = {
-                    str(name).strip().lower().replace(" ", "-"): AidenEngine._sanitize_profile(profile)
+                    str(name).strip().lower().replace(" ", "-"): self._sanitize_profile(profile)
                     for name, profile in profiles.items()
                     if str(name).strip()
                 }
@@ -173,20 +177,20 @@ class AidenEngine:
             except (json.JSONDecodeError, OSError, ValueError):
                 pass
 
-        legacy = AidenEngine.load_preferences()
+        legacy = self.load_preferences()
         initial = {
             "active_profile": "default",
             "profiles": {
                 "default": legacy,
             },
         }
-        PROFILES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PROFILES_FILE.write_text(json.dumps(initial, indent=2), encoding="utf-8")
+        self.profiles_file.parent.mkdir(parents=True, exist_ok=True)
+        self.profiles_file.write_text(json.dumps(initial, indent=2), encoding="utf-8")
         return initial
 
     def save_profile_store(self) -> None:
-        PROFILES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PROFILES_FILE.write_text(
+        self.profiles_file.parent.mkdir(parents=True, exist_ok=True)
+        self.profiles_file.write_text(
             json.dumps(self.profile_store, indent=2),
             encoding="utf-8",
         )
@@ -498,9 +502,9 @@ class AidenEngine:
         self.refresh_system_prompt()
 
     def export_active_profile(self) -> Path:
-        PROFILE_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        self.profile_export_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = PROFILE_EXPORT_DIR / f"profile_{self.active_profile}_{stamp}.json"
+        path = self.profile_export_dir / f"profile_{self.active_profile}_{stamp}.json"
         payload = {
             "profile_name": self.active_profile,
             "profile": dict(self.preferences),
@@ -570,7 +574,7 @@ class AidenEngine:
             "  /task add <text>\n"
             "  /task list\n"
             "  /task done <id>\n"
-            "  /task edit <id>|<text>|<priority>|<due:YYYY-MM-DD>\n"
+            "  /task edit <id>|<text>|<priority>|<YYYY-MM-DD>\n"
             "  /task postpone <id> [days]\n"
             "  /task remove <id>\n"
             "  /task clear\n"
@@ -592,10 +596,10 @@ class AidenEngine:
         self.refresh_system_prompt()
 
     def export_chat(self, file_stem: str = "") -> Path:
-        CHAT_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        self.chat_export_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         stem = file_stem.strip().replace(" ", "_") if file_stem else f"aiden_chat_{stamp}"
-        export_path = CHAT_EXPORT_DIR / f"{stem}.md"
+        export_path = self.chat_export_dir / f"{stem}.md"
 
         lines = [
             "# Aiden Chat Export",
@@ -736,7 +740,7 @@ class AidenEngine:
                 parts = [p.strip() for p in value.split("|")]
                 if len(parts) < 2:
                     raise ValueError(
-                        "Usage: /task edit <id>|<text>|<priority>|<due:YYYY-MM-DD>"
+                        "Usage: /task edit <id>|<text>|<priority>|<YYYY-MM-DD>"
                     )
                 task_id = int(parts[0])
                 text = parts[1] if len(parts) > 1 and parts[1] else None
@@ -839,12 +843,8 @@ class AidenEngine:
                 "I can help with safe and responsible alternatives."
             )
 
-        recalled = self.recall_memory_notes(user_text, limit=2)
-        if recalled:
-            context_note = "Relevant memory context: " + " | ".join(recalled)
-            self.messages.append({"role": "system", "content": context_note})
-
-        self.messages.append({"role": "user", "content": user_text})
+        user_content = self._build_user_content(user_text)
+        self.messages.append({"role": "user", "content": user_content})
         self._trim_messages()
 
         if self.client is None:
@@ -861,6 +861,56 @@ class AidenEngine:
         assistant_text = response.choices[0].message.content or ""
         self.messages.append({"role": "assistant", "content": assistant_text})
         return assistant_text
+
+    def chat_stream(self, user_text: str) -> Iterator[str]:
+        if self.is_unsafe_prompt(user_text):
+            safe_text = (
+                "I can't help with harmful or illegal requests. "
+                "I can help with safe and responsible alternatives."
+            )
+            self.messages.append({"role": "assistant", "content": safe_text})
+            yield safe_text
+            return
+
+        user_content = self._build_user_content(user_text)
+        self.messages.append({"role": "user", "content": user_content})
+        self._trim_messages()
+
+        if self.client is None:
+            assistant_text = self._chat_local_fallback(user_text)
+            self.messages.append({"role": "assistant", "content": assistant_text})
+            for token in assistant_text.split(" "):
+                yield token + " "
+            return
+
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=self.messages,
+            temperature=0.4,
+            stream=True,
+        )
+
+        parts: List[str] = []
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            text = delta.content or ""
+            if not text:
+                continue
+            parts.append(text)
+            yield text
+
+        assistant_text = "".join(parts)
+        self.messages.append({"role": "assistant", "content": assistant_text})
+
+    def _build_user_content(self, user_text: str) -> str:
+        # Embed recalled memory into the user turn so it is tied to this specific
+        # message and does not accumulate as a separate system entry.
+        user_content = user_text
+        recalled = self.recall_memory_notes(user_text, limit=2)
+        if recalled:
+            context_note = "[Memory context: " + " | ".join(recalled) + "]"
+            user_content = f"{context_note}\n{user_text}"
+        return user_content
 
     def _chat_local_fallback(self, user_text: str) -> str:
         mode = self.preferences.get("mode", "study")

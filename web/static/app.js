@@ -1,5 +1,7 @@
 const chat = document.getElementById("chat");
 const form = document.getElementById("chatForm");
+const sendBtn = document.getElementById("sendBtn");
+const stopStreamingBtn = document.getElementById("stopStreamingBtn");
 const messageInput = document.getElementById("message");
 const modeInput = document.getElementById("mode");
 const nameInput = document.getElementById("name");
@@ -126,6 +128,16 @@ const AUTOCOMPLETE_PREFIXES = [
 ];
 
 let autocompleteIndex = -1;
+let activeChatAbortController = null;
+
+function setStreamingUiState(isStreaming) {
+  if (sendBtn) sendBtn.disabled = isStreaming;
+  if (messageInput) messageInput.disabled = isStreaming;
+  if (stopStreamingBtn) {
+    stopStreamingBtn.classList.toggle("hidden", !isStreaming);
+    stopStreamingBtn.disabled = !isStreaming;
+  }
+}
 function getLocalDateStamp() {
   const now = new Date();
   const year = now.getFullYear();
@@ -221,6 +233,228 @@ function addMessage(role, text) {
   chat.scrollTop = chat.scrollHeight;
   
   saveMessageToCurrentConversation(role, text);
+}
+
+function createStreamingMessage(role) {
+  const wrapper = document.createElement("article");
+  wrapper.className = `msg ${role}`;
+  const timestamp = new Date();
+
+  const tag = document.createElement("div");
+  tag.className = "tag";
+  tag.textContent = role === "user" ? "YOU" : "AIDEN";
+
+  const time = document.createElement("div");
+  time.className = "msg-time";
+  time.textContent = formatRelativeTime(timestamp);
+  time.title = timestamp.toLocaleTimeString();
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble streaming";
+  bubble.textContent = "";
+
+  wrapper.appendChild(tag);
+  wrapper.appendChild(time);
+  wrapper.appendChild(bubble);
+  wrapper.addEventListener("contextmenu", (e) => showMessageContextMenu(e, wrapper));
+  chat.appendChild(wrapper);
+  chat.scrollTop = chat.scrollHeight;
+
+  return {
+    append(text) {
+      bubble.textContent += text;
+      chat.scrollTop = chat.scrollHeight;
+    },
+    finalize() {
+      bubble.classList.remove("streaming");
+      saveMessageToCurrentConversation(role, bubble.textContent || "");
+      if (role === "aiden") {
+        const reactions = document.createElement("div");
+        reactions.className = "reactions";
+        [
+          { emoji: "👍", label: "helpful" },
+          { emoji: "❤️", label: "great" },
+          { emoji: "🎯", label: "onpoint" },
+          { emoji: "😕", label: "confused" },
+        ].forEach((r) => {
+          const btn = document.createElement("button");
+          btn.className = "reaction-btn";
+          btn.textContent = r.emoji;
+          btn.title = r.label;
+          btn.type = "button";
+          btn.addEventListener("click", () => recordReaction(r.label, bubble.textContent || ""));
+          reactions.appendChild(btn);
+        });
+        wrapper.appendChild(reactions);
+
+        const suggestedReplies = document.createElement("div");
+        suggestedReplies.className = "suggested-replies";
+        const suggestions = generateSuggestedReplies(bubble.textContent || "");
+        suggestions.forEach((suggestion) => {
+          const btn = document.createElement("button");
+          btn.className = "suggested-reply-btn";
+          btn.textContent = suggestion;
+          btn.type = "button";
+          btn.addEventListener("click", () => sendSuggestedReply(suggestion));
+          suggestedReplies.appendChild(btn);
+        });
+        wrapper.appendChild(suggestedReplies);
+      }
+    },
+    remove() {
+      wrapper.remove();
+    },
+    getText() {
+      return bubble.textContent || "";
+    },
+  };
+}
+
+async function streamChatReply(text, signal, options = {}) {
+  const preservePartialOnError = options.preservePartialOnError === true;
+  const response = await fetch("/api/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+    body: JSON.stringify({
+      message: text,
+      mode: modeInput.value,
+      name: nameInput.value,
+      short_responses: shortInput.checked,
+      learning_style: learningStyleInput.value,
+      focus_goal: focusGoalInput.value,
+      interests: interestsInput.value,
+    }),
+  });
+
+  if (!response.ok || !response.body) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Request failed");
+  }
+
+  const assistant = createStreamingMessage("aiden");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalPayload = null;
+  let streamError = "";
+  let finalized = false;
+
+  const applyStreamEvent = (item) => {
+    if (!item || typeof item !== "object") {
+      return;
+    }
+    if (item.type === "chunk") {
+      assistant.append(item.text || "");
+      return;
+    }
+    if (item.type === "final") {
+      finalPayload = item;
+      return;
+    }
+    if (item.type === "error") {
+      streamError = item.error || "Streaming request failed.";
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let lineBreak = buffer.indexOf("\n");
+      while (lineBreak >= 0) {
+        const line = buffer.slice(0, lineBreak).trim();
+        buffer = buffer.slice(lineBreak + 1);
+        if (line) {
+          try {
+            applyStreamEvent(JSON.parse(line));
+          } catch (_parseError) {
+            // Ignore malformed stream lines and continue consuming.
+          }
+        }
+        lineBreak = buffer.indexOf("\n");
+      }
+    }
+
+    buffer += decoder.decode();
+    const trailing = buffer.trim();
+    if (trailing) {
+      try {
+        applyStreamEvent(JSON.parse(trailing));
+      } catch (_parseError) {
+        // Ignore malformed trailing chunk.
+      }
+    }
+  } finally {
+    const built = assistant.getText().trim();
+    if (built) {
+      if (streamError && !preservePartialOnError) {
+        assistant.remove();
+      } else {
+        assistant.finalize();
+      }
+      finalized = true;
+    } else {
+      assistant.remove();
+      finalized = true;
+    }
+  }
+
+  if (!finalized) {
+    assistant.finalize();
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
+
+  return finalPayload;
+}
+
+async function streamChatReplyWithRetry(text, signal) {
+  let attempt = 0;
+  while (attempt < 2) {
+    try {
+      return await streamChatReply(text, signal, {
+        preservePartialOnError: false,
+      });
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw error;
+      }
+      attempt += 1;
+      if (attempt >= 2) {
+        throw error;
+      }
+      addMessage("aiden", "Stream interrupted, retrying once...");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+  return null;
+}
+
+async function fetchChatFallback(text) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: text,
+      mode: modeInput.value,
+      name: nameInput.value,
+      short_responses: shortInput.checked,
+      learning_style: learningStyleInput.value,
+      focus_goal: focusGoalInput.value,
+      interests: interestsInput.value,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Fallback request failed");
+  }
+  return data;
 }
 
 function recordReaction(label, messageText) {
@@ -364,7 +598,7 @@ function renderStatistics(stats) {
 let bookmarkedMessages = JSON.parse(localStorage.getItem("bookmarkedMessages")) || [];
 
 function bookmarkMessage(messageElement) {
-  const text = messageElement.querySelector(".bubble-text")?.textContent || messageElement.textContent;
+  const text = messageElement.querySelector(".bubble")?.textContent || messageElement.textContent;
   const sender = messageElement.classList.contains("user") ? "user" : "aiden";
   const timestamp = new Date().toISOString();
   
@@ -396,11 +630,11 @@ function renderBookmarks() {
 function setTheme(theme) {
   const root = document.documentElement;
   const themeMap = {
-    light: { bg0: "#ffffff", bg1: "#f5f5f5", card: "#ffffff", ink: "#1a1a1a", muted: "#666", line: "#ddd", brand: "#007acc" },
-    dark: { bg0: "#1a1f28", bg1: "#232a36", card: "rgba(35, 42, 54, 0.92)", ink: "#e8e9eb", muted: "#8a92a0", line: "#3a4455", brand: "#00d4ff" },
-    nord: { bg0: "#252932", bg1: "#2e3440", card: "rgba(46, 52, 64, 0.92)", ink: "#eceff4", muted: "#81a1c1", line: "#4c566a", brand: "#88c0d0" },
-    dracula: { bg0: "#282a36", bg1: "#21222c", card: "rgba(33, 34, 44, 0.92)", ink: "#f8f8f2", muted: "#6272a4", line: "#44475a", brand: "#ff79c6" },
-    solarized: { bg0: "#fdf6e3", bg1: "#eee8d5", card: "#fdf6e3", ink: "#657b83", muted: "#93a1a1", line: "#d6d0be", brand: "#268bd2" },
+    light: { bg0: "#ffffff", bg1: "#f5f5f5", card: "#ffffff", ink: "#1a1a1a", muted: "#666", line: "#ddd", brand: "#007acc", accent: "#007acc" },
+    dark: { bg0: "#1a1f28", bg1: "#232a36", card: "rgba(35, 42, 54, 0.92)", ink: "#e8e9eb", muted: "#8a92a0", line: "#3a4455", brand: "#00d4ff", accent: "#00d4ff" },
+    nord: { bg0: "#252932", bg1: "#2e3440", card: "rgba(46, 52, 64, 0.92)", ink: "#eceff4", muted: "#81a1c1", line: "#4c566a", brand: "#88c0d0", accent: "#88c0d0" },
+    dracula: { bg0: "#282a36", bg1: "#21222c", card: "rgba(33, 34, 44, 0.92)", ink: "#f8f8f2", muted: "#6272a4", line: "#44475a", brand: "#ff79c6", accent: "#ff79c6" },
+    solarized: { bg0: "#fdf6e3", bg1: "#eee8d5", card: "#fdf6e3", ink: "#657b83", muted: "#93a1a1", line: "#d6d0be", brand: "#268bd2", accent: "#268bd2" },
   };
   
   const colors = themeMap[theme] || themeMap.light;
@@ -1817,34 +2051,19 @@ form.addEventListener("submit", async (event) => {
 
   addMessage("user", text);
   messageInput.value = "";
-  messageInput.focus();
+  setStreamingUiState(true);
   typingIndicator?.classList.remove("hidden");
 
   try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: text,
-        mode: modeInput.value,
-        name: nameInput.value,
-        short_responses: shortInput.checked,
-        learning_style: learningStyleInput.value,
-        focus_goal: focusGoalInput.value,
-        interests: interestsInput.value,
-      }),
-    });
-
-    const data = await response.json();
+    activeChatAbortController = new AbortController();
+    const data = await streamChatReplyWithRetry(text, activeChatAbortController.signal);
     typingIndicator?.classList.add("hidden");
-    if (!response.ok) {
-      addMessage("aiden", `Error: ${data.error || "Request failed"}`);
+    if (!data) {
       return;
     }
 
-    syncPrefs(data.prefs);
-    syncRuntime(data.runtime);
-    addMessage("aiden", data.answer || "I do not have a response right now.");
+    syncPrefs(data.prefs || {});
+    syncRuntime(data.runtime || null);
 
     if (data.meta && data.meta.type === "exit") {
       addMessage("aiden", "Session closed command received. Refresh to continue.");
@@ -1859,7 +2078,36 @@ form.addEventListener("submit", async (event) => {
     }
   } catch (error) {
     typingIndicator?.classList.add("hidden");
-    addMessage("aiden", `Error: ${error}`);
+    if (error && error.name === "AbortError") {
+      addMessage("aiden", "Streaming stopped.");
+    } else {
+      try {
+        const fallback = await fetchChatFallback(text);
+        addMessage("aiden", "Streaming unavailable, switched to standard response mode.");
+        syncPrefs(fallback.prefs || {});
+        syncRuntime(fallback.runtime || null);
+        addMessage("aiden", fallback.answer || "I do not have a response right now.");
+
+        if (fallback.meta && fallback.meta.type === "profile") {
+          await fetchState();
+        }
+        if (fallback.meta && fallback.meta.type === "task") {
+          await fetchState();
+        }
+      } catch (fallbackError) {
+        addMessage("aiden", `Error: ${fallbackError}`);
+      }
+    }
+  } finally {
+    activeChatAbortController = null;
+    setStreamingUiState(false);
+    messageInput.focus();
+  }
+});
+
+stopStreamingBtn?.addEventListener("click", () => {
+  if (activeChatAbortController) {
+    activeChatAbortController.abort();
   }
 });
 

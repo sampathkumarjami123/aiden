@@ -4,12 +4,13 @@ import os
 import threading
 import time
 from collections import defaultdict, deque
+from typing import Iterator
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -38,6 +39,7 @@ def _parse_positive_int_env(name: str, default: int) -> int:
 RATE_LIMIT_WINDOW_SECONDS = _parse_positive_int_env("AIDEN_RATE_LIMIT_WINDOW_SECONDS", 60)
 RATE_LIMIT_REQUESTS_PER_WINDOW = _parse_positive_int_env("AIDEN_RATE_LIMIT_PER_WINDOW", 60)
 MAX_REQUEST_BYTES = _parse_positive_int_env("AIDEN_MAX_REQUEST_BYTES", 65536)
+STREAM_MAX_SECONDS = _parse_positive_int_env("AIDEN_STREAM_MAX_SECONDS", 120)
 LOG_MAX_BYTES = _parse_positive_int_env("AIDEN_LOG_MAX_BYTES", 1048576)
 LOG_BACKUP_COUNT = _parse_positive_int_env("AIDEN_LOG_BACKUP_COUNT", 3)
 
@@ -68,6 +70,12 @@ WEB_LOGGER = _configure_logger()
 
 _rate_limit_lock = threading.Lock()
 _client_request_times: dict[str, deque[float]] = defaultdict(deque)
+_engine_lock = threading.RLock()
+
+
+def _engine_run(callable_obj, *args, **kwargs):
+    with _engine_lock:
+        return callable_obj(*args, **kwargs)
 
 
 def _get_client_key(request: Request) -> str:
@@ -233,19 +241,40 @@ class ProfileImportPayload(BaseModel):
     profile_data: dict
 
 
+def _apply_chat_preferences(payload: ChatPayload) -> None:
+    with _engine_lock:
+        if payload.mode:
+            engine.set_mode(payload.mode)
+
+        if payload.name and payload.name.strip():
+            engine.set_name(payload.name.strip())
+
+        if payload.short_responses is not None:
+            engine.set_short_responses(payload.short_responses)
+
+        if payload.learning_style is not None and payload.learning_style.strip():
+            engine.set_learning_style(payload.learning_style)
+
+        if payload.focus_goal is not None:
+            engine.set_focus_goal(payload.focus_goal)
+
+        if payload.interests is not None:
+            engine.set_interests(payload.interests)
+
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    prefs = engine.get_preferences()
+    prefs = _engine_run(engine.get_preferences)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "modes": list(MODES.keys()),
             "prefs": prefs,
-            "profiles": engine.list_profiles(),
-            "tasks": engine.list_tasks(),
-            "memory_notes": engine.list_memory_notes(),
-            "runtime": engine.get_runtime_info(),
+            "profiles": _engine_run(engine.list_profiles),
+            "tasks": _engine_run(engine.list_tasks),
+            "memory_notes": _engine_run(engine.list_memory_notes),
+            "runtime": _engine_run(engine.get_runtime_info),
         },
     )
 
@@ -259,209 +288,256 @@ def health_check():
 def get_state():
     return JSONResponse(
         {
-            "prefs": engine.get_preferences(),
-            "profiles": engine.list_profiles(),
-            "tasks": engine.list_tasks(),
-            "memory_notes": engine.list_memory_notes(),
-            "runtime": engine.get_runtime_info(),
+            "prefs": _engine_run(engine.get_preferences),
+            "profiles": _engine_run(engine.list_profiles),
+            "tasks": _engine_run(engine.list_tasks),
+            "memory_notes": _engine_run(engine.list_memory_notes),
+            "runtime": _engine_run(engine.get_runtime_info),
         }
     )
 
 
 @app.post("/api/chat")
 def chat(payload: ChatPayload):
-    if payload.mode:
-        engine.set_mode(payload.mode)
+    _apply_chat_preferences(payload)
 
-    if payload.name and payload.name.strip():
-        engine.set_name(payload.name.strip())
-
-    if payload.short_responses is not None:
-        engine.set_short_responses(payload.short_responses)
-
-    if payload.learning_style is not None and payload.learning_style.strip():
-        engine.set_learning_style(payload.learning_style)
-
-    if payload.focus_goal is not None:
-        engine.set_focus_goal(payload.focus_goal)
-
-    if payload.interests is not None:
-        engine.set_interests(payload.interests)
-
-    handled, command_output, meta = engine.handle_command(payload.message)
+    handled, command_output, meta = _engine_run(engine.handle_command, payload.message)
     if handled:
         return JSONResponse(
             {
                 "answer": command_output,
-                "prefs": engine.get_preferences(),
+                "prefs": _engine_run(engine.get_preferences),
                 "meta": meta,
-                "runtime": engine.get_runtime_info(),
+                "runtime": _engine_run(engine.get_runtime_info),
             }
         )
 
-    answer = engine.chat(payload.message)
-    prefs = engine.get_preferences()
+    answer = _engine_run(engine.chat, payload.message)
+    prefs = _engine_run(engine.get_preferences)
     return JSONResponse(
         {
             "answer": answer,
             "prefs": prefs,
             "meta": {"type": "chat"},
-            "runtime": engine.get_runtime_info(),
+            "runtime": _engine_run(engine.get_runtime_info),
         }
     )
 
 
+@app.post("/api/chat/stream")
+def chat_stream(payload: ChatPayload):
+    _apply_chat_preferences(payload)
+
+    def iter_lines() -> Iterator[str]:
+        with _engine_lock:
+            try:
+                handled, command_output, meta = engine.handle_command(payload.message)
+                if handled:
+                    if command_output:
+                        yield json.dumps({"type": "chunk", "text": command_output}) + "\n"
+                    yield (
+                        json.dumps(
+                            {
+                                "type": "final",
+                                "prefs": engine.get_preferences(),
+                                "meta": meta,
+                                "runtime": engine.get_runtime_info(),
+                            }
+                        )
+                        + "\n"
+                    )
+                    return
+
+                start_time = time.monotonic()
+                for part in engine.chat_stream(payload.message):
+                    if time.monotonic() - start_time > STREAM_MAX_SECONDS:
+                        raise TimeoutError(
+                            f"Streaming response exceeded {STREAM_MAX_SECONDS} seconds."
+                        )
+                    if part:
+                        yield json.dumps({"type": "chunk", "text": part}) + "\n"
+
+                yield (
+                    json.dumps(
+                        {
+                            "type": "final",
+                            "prefs": engine.get_preferences(),
+                            "meta": {"type": "chat"},
+                            "runtime": engine.get_runtime_info(),
+                        }
+                    )
+                    + "\n"
+                )
+            except Exception as exc:
+                yield json.dumps({"type": "error", "error": str(exc)}) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "type": "final",
+                            "prefs": engine.get_preferences(),
+                            "meta": {"type": "error"},
+                            "runtime": engine.get_runtime_info(),
+                        }
+                    )
+                    + "\n"
+                )
+
+    return StreamingResponse(iter_lines(), media_type="application/x-ndjson")
+
+
 @app.post("/api/reset")
 def reset_chat():
-    engine.reset_chat()
+    _engine_run(engine.reset_chat)
     return JSONResponse({"ok": True, "message": "Conversation context reset."})
 
 
 @app.post("/api/export")
 def export_chat():
-    path = engine.export_chat()
+    path = _engine_run(engine.export_chat)
     return JSONResponse({"ok": True, "path": str(path)})
 
 
 @app.post("/api/profiles/create")
 def profile_create(payload: ProfilePayload):
-    created = engine.create_profile(payload.name)
+    created = _engine_run(engine.create_profile, payload.name)
     return JSONResponse(
         {
             "ok": True,
             "message": f"Profile created: {created}",
-            "prefs": engine.get_preferences(),
-            "profiles": engine.list_profiles(),
+            "prefs": _engine_run(engine.get_preferences),
+            "profiles": _engine_run(engine.list_profiles),
         }
     )
 
 
 @app.post("/api/profiles/switch")
 def profile_switch(payload: ProfilePayload):
-    switched = engine.switch_profile(payload.name)
+    switched = _engine_run(engine.switch_profile, payload.name)
     return JSONResponse(
         {
             "ok": True,
             "message": f"Switched to profile: {switched}",
-            "prefs": engine.get_preferences(),
-            "profiles": engine.list_profiles(),
-            "tasks": engine.list_tasks(),
-            "memory_notes": engine.list_memory_notes(),
+            "prefs": _engine_run(engine.get_preferences),
+            "profiles": _engine_run(engine.list_profiles),
+            "tasks": _engine_run(engine.list_tasks),
+            "memory_notes": _engine_run(engine.list_memory_notes),
         }
     )
 
 
 @app.post("/api/profiles/delete")
 def profile_delete(payload: ProfilePayload):
-    deleted = engine.delete_profile(payload.name)
+    deleted = _engine_run(engine.delete_profile, payload.name)
     return JSONResponse(
         {
             "ok": True,
             "message": f"Deleted profile: {deleted}",
-            "prefs": engine.get_preferences(),
-            "profiles": engine.list_profiles(),
-            "tasks": engine.list_tasks(),
-            "memory_notes": engine.list_memory_notes(),
+            "prefs": _engine_run(engine.get_preferences),
+            "profiles": _engine_run(engine.list_profiles),
+            "tasks": _engine_run(engine.list_tasks),
+            "memory_notes": _engine_run(engine.list_memory_notes),
         }
     )
 
 
 @app.post("/api/profiles/export")
 def profile_export():
-    path = engine.export_active_profile()
+    path = _engine_run(engine.export_active_profile)
     payload = json.loads(path.read_text(encoding="utf-8"))
     return JSONResponse({"ok": True, "path": str(path), "payload": payload})
 
 
 @app.post("/api/profiles/import")
 def profile_import(payload: ProfileImportPayload):
-    imported = engine.import_profile_from_json(payload.profile_name, payload.profile_data)
+    imported = _engine_run(engine.import_profile_from_json, payload.profile_name, payload.profile_data)
     return JSONResponse(
         {
             "ok": True,
             "message": f"Imported profile: {imported}",
-            "prefs": engine.get_preferences(),
-            "profiles": engine.list_profiles(),
-            "tasks": engine.list_tasks(),
-            "memory_notes": engine.list_memory_notes(),
+            "prefs": _engine_run(engine.get_preferences),
+            "profiles": _engine_run(engine.list_profiles),
+            "tasks": _engine_run(engine.list_tasks),
+            "memory_notes": _engine_run(engine.list_memory_notes),
         }
     )
 
 
 @app.get("/api/tasks")
 def task_list():
-    return JSONResponse({"tasks": engine.list_tasks()})
+    return JSONResponse({"tasks": _engine_run(engine.list_tasks)})
 
 
 @app.post("/api/tasks/add")
 def task_add(payload: TaskPayload):
-    task = engine.add_task(
+    task = _engine_run(
+        engine.add_task,
         payload.text,
         due_date=payload.due_date,
         priority=payload.priority,
     )
-    return JSONResponse({"ok": True, "task": task, "tasks": engine.list_tasks()})
+    return JSONResponse({"ok": True, "task": task, "tasks": _engine_run(engine.list_tasks)})
 
 
 @app.post("/api/tasks/done")
 def task_done(payload: TaskIdPayload):
-    task = engine.complete_task(payload.task_id)
-    return JSONResponse({"ok": True, "task": task, "tasks": engine.list_tasks()})
+    task = _engine_run(engine.complete_task, payload.task_id)
+    return JSONResponse({"ok": True, "task": task, "tasks": _engine_run(engine.list_tasks)})
 
 
 @app.post("/api/tasks/edit")
 def task_edit(payload: TaskEditPayload):
-    task = engine.edit_task(
+    task = _engine_run(
+        engine.edit_task,
         payload.task_id,
         text=payload.text,
         due_date=payload.due_date,
         priority=payload.priority,
     )
-    return JSONResponse({"ok": True, "task": task, "tasks": engine.list_tasks()})
+    return JSONResponse({"ok": True, "task": task, "tasks": _engine_run(engine.list_tasks)})
 
 
 @app.post("/api/tasks/postpone")
 def task_postpone(payload: TaskPostponePayload):
-    task = engine.postpone_task(payload.task_id, days=payload.days)
-    return JSONResponse({"ok": True, "task": task, "tasks": engine.list_tasks()})
+    task = _engine_run(engine.postpone_task, payload.task_id, days=payload.days)
+    return JSONResponse({"ok": True, "task": task, "tasks": _engine_run(engine.list_tasks)})
 
 
 @app.post("/api/tasks/remove")
 def task_remove(payload: TaskIdPayload):
-    engine.remove_task(payload.task_id)
-    return JSONResponse({"ok": True, "tasks": engine.list_tasks()})
+    _engine_run(engine.remove_task, payload.task_id)
+    return JSONResponse({"ok": True, "tasks": _engine_run(engine.list_tasks)})
 
 
 @app.post("/api/tasks/clear")
 def task_clear():
-    engine.clear_tasks()
-    return JSONResponse({"ok": True, "tasks": engine.list_tasks()})
+    _engine_run(engine.clear_tasks)
+    return JSONResponse({"ok": True, "tasks": _engine_run(engine.list_tasks)})
 
 
 @app.get("/api/memory")
 def memory_list():
-    return JSONResponse({"memory_notes": engine.list_memory_notes()})
+    return JSONResponse({"memory_notes": _engine_run(engine.list_memory_notes)})
 
 
 @app.post("/api/memory/add")
 def memory_add(payload: MemoryPayload):
-    note = engine.add_memory_note(payload.note)
+    note = _engine_run(engine.add_memory_note, payload.note)
     return JSONResponse(
         {
             "ok": True,
             "note": note,
-            "memory_notes": engine.list_memory_notes(),
+            "memory_notes": _engine_run(engine.list_memory_notes),
         }
     )
 
 
 @app.post("/api/memory/clear")
 def memory_clear():
-    engine.clear_memory_notes()
-    return JSONResponse({"ok": True, "memory_notes": engine.list_memory_notes()})
+    _engine_run(engine.clear_memory_notes)
+    return JSONResponse({"ok": True, "memory_notes": _engine_run(engine.list_memory_notes)})
 
 
 @app.post("/api/memory/search")
 def memory_search(payload: MemorySearchPayload):
-    results = engine.recall_memory_notes(payload.query, limit=10)
+    results = _engine_run(engine.recall_memory_notes, payload.query, limit=10)
     return JSONResponse({"ok": True, "results": results})

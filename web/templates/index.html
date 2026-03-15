@@ -104,11 +104,6 @@
         <div id="bookmarksList" class="bookmarks-list"></div>
       </section>
 
-      <section id="bookmarksPanel" class="bookmarks-panel hidden">
-        <h3>📌 Bookmarked Messages</h3>
-        <div id="bookmarksList" class="bookmarks-list"></div>
-      </section>
-
       <section id="statsPanel" class="stats-panel hidden" aria-live="polite">
         <h3>Chat Statistics</h3>
         <div class="stats-grid">
@@ -321,7 +316,10 @@
           <input id="message" type="text" placeholder="Ask Aiden anything..." autocomplete="off" />
           <ul id="autocompleteList" class="autocomplete-dropdown hidden"></ul>
         </div>
-        <button type="submit">Send</button>
+        <div class="composer-actions">
+          <button id="sendBtn" type="submit">Send</button>
+          <button id="stopStreamingBtn" type="button" class="stop-stream-btn hidden">Stop</button>
+        </div>
       </form>
     </main>
 

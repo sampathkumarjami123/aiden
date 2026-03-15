@@ -121,6 +121,7 @@ python aiden_desktop.py
 Desktop includes:
 - Profile switch/create/delete panel
 - Task add/complete/remove/clear panel
+- Task filter view (`all`, `pending`, `done`)
 - Command-aware chat box (slash commands also work)
 
 ## 4) Run Web UI (FastAPI)
@@ -137,6 +138,9 @@ Web includes:
 - Task priority and due date inputs
 - Memory notes save and clear panel
 - State sync with backend profile and task data
+- Streaming assistant replies over `/api/chat/stream` (NDJSON chunks)
+- Stop button to cancel in-progress streamed replies
+- Automatic one-time retry on transient stream interruptions
 
 ## 5) Run Voice Mode
 
@@ -208,6 +212,8 @@ In voice mode:
 - If `pyttsx3` is unavailable, voice output is skipped safely.
 - If `OPENAI_API_KEY` is not set and `AIDEN_DEV_MODE=true`, Aiden still runs with local fallback responses for UI testing.
 - Health endpoint for checks and monitoring: `GET /health`
+- Streaming chat endpoint: `POST /api/chat/stream` (returns `application/x-ndjson` with `chunk` and `final` events)
+- Stream failures emit a structured `error` event before the final metadata event
 - API responses include `x-request-id` for easier request tracing in logs.
 - In local fallback mode, you can use prefixes for structured output:
 	- `summarize: <text>`
