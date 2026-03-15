@@ -100,6 +100,7 @@ Use these helper scripts after setup:
 .\scripts\quality-gate.ps1
 .\scripts\health-check.ps1
 .\scripts\health-check.ps1 -StartupTimeoutSeconds 60
+.\scripts\runtime-check.ps1
 .\scripts\logs.ps1 -Tail 100
 .\scripts\logs.ps1 -Tail 100 -Follow
 .\scripts\release.ps1 -Version v1.0.1 -DryRun
@@ -198,6 +199,7 @@ In voice mode:
 - `scripts/test.ps1`: runs unit tests from the `tests/` folder
 - `scripts/quality-gate.ps1`: runs tests plus health checks as one local gate
 - `scripts/health-check.ps1`: compile and web endpoint smoke test
+- `scripts/runtime-check.ps1`: live vs fallback runtime diagnosis and model retest helper
 - `scripts/logs.ps1`: view or follow rotating API request logs
 - `scripts/release.ps1`: validates release preconditions and creates semantic tags
 - `preferences.json`: created automatically after first preference change
