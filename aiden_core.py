@@ -68,9 +68,12 @@ class AidenEngine:
         self.max_messages = self._parse_max_messages(os.getenv("AIDEN_MAX_MESSAGES"))
         self.dev_mode = os.getenv("AIDEN_DEV_MODE", "true").lower() != "false"
         self.client: OpenAI | None = None
+        self.model_healthy = False
+        self.last_model_error = ""
 
         if api_key:
             self.client = OpenAI(api_key=api_key)
+            self.model_healthy = True
         elif not self.dev_mode:
             raise RuntimeError(
                 "OPENAI_API_KEY is not set. Copy .env.example to .env and set your key, "
@@ -549,12 +552,40 @@ class AidenEngine:
         return payload
 
     def get_runtime_info(self) -> Dict[str, object]:
-        has_model = self.client is not None
-        return {
+        configured_model = self.client is not None
+        has_model = configured_model and self.model_healthy
+        mode_label = "live" if has_model else ("local-fallback" if configured_model else "local")
+        payload: Dict[str, object] = {
             "dev_mode": self.dev_mode,
             "has_model": has_model,
-            "mode_label": "live" if has_model else "local",
+            "mode_label": mode_label,
         }
+        if self.last_model_error:
+            payload["model_error"] = self.last_model_error
+        return payload
+
+    def retest_model_connection(self) -> Dict[str, object]:
+        if self.client is None:
+            self.model_healthy = False
+            self.last_model_error = "OPENAI_API_KEY is not configured."
+            return self.get_runtime_info()
+
+        try:
+            self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "ping"}],
+                temperature=0,
+                max_tokens=1,
+            )
+            self.model_healthy = True
+            self.last_model_error = ""
+        except Exception as exc:
+            self.model_healthy = False
+            self.last_model_error = (
+                f"Model connection test failed ({type(exc).__name__}): {exc}."
+            )
+
+        return self.get_runtime_info()
 
     def get_help_text(self) -> str:
         return (
@@ -852,13 +883,24 @@ class AidenEngine:
             self.messages.append({"role": "assistant", "content": assistant_text})
             return assistant_text
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
-            temperature=0.4,
-        )
-
-        assistant_text = response.choices[0].message.content or ""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+                temperature=0.4,
+            )
+            assistant_text = response.choices[0].message.content or ""
+            self.model_healthy = True
+            self.last_model_error = ""
+        except Exception as exc:
+            if not self.dev_mode:
+                raise
+            self.model_healthy = False
+            self.last_model_error = (
+                f"Model API request failed ({type(exc).__name__}): {exc}. "
+                "Using local fallback mode."
+            )
+            assistant_text = self._chat_local_fallback(user_text)
         self.messages.append({"role": "assistant", "content": assistant_text})
         return assistant_text
 
@@ -883,23 +925,37 @@ class AidenEngine:
                 yield token + " "
             return
 
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
-            temperature=0.4,
-            stream=True,
-        )
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+                temperature=0.4,
+                stream=True,
+            )
 
-        parts: List[str] = []
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            text = delta.content or ""
-            if not text:
-                continue
-            parts.append(text)
-            yield text
+            parts: List[str] = []
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                text = delta.content or ""
+                if not text:
+                    continue
+                parts.append(text)
+                yield text
 
-        assistant_text = "".join(parts)
+            assistant_text = "".join(parts)
+            self.model_healthy = True
+            self.last_model_error = ""
+        except Exception as exc:
+            if not self.dev_mode:
+                raise
+            self.model_healthy = False
+            self.last_model_error = (
+                f"Model API stream failed ({type(exc).__name__}): {exc}. "
+                "Using local fallback mode."
+            )
+            assistant_text = self._chat_local_fallback(user_text)
+            for token in assistant_text.split(" "):
+                yield token + " "
         self.messages.append({"role": "assistant", "content": assistant_text})
 
     def _build_user_content(self, user_text: str) -> str:

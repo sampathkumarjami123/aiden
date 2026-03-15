@@ -36,6 +36,16 @@ class WebApiTests(unittest.TestCase):
         for key in ('prefs', 'profiles', 'tasks', 'memory_notes', 'runtime'):
             self.assertIn(key, payload)
 
+    def test_runtime_retest_endpoint_returns_runtime_payload(self):
+        with patch.object(engine, 'retest_model_connection', return_value={'mode_label': 'live', 'has_model': True}):
+            response = self.client.post('/api/runtime/retest')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['ok'])
+        self.assertIn('runtime', payload)
+        self.assertEqual(payload['runtime']['mode_label'], 'live')
+
     def test_api_security_headers_present_on_success(self):
         response = self.client.get('/api/state')
         self.assertEqual(response.status_code, 200)

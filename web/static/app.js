@@ -13,12 +13,17 @@ const resetBtn = document.getElementById("resetBtn");
 const exportBtn = document.getElementById("exportBtn");
 const runtimePill = document.getElementById("runtimePill");
 const localBanner = document.getElementById("localBanner");
+const runtimeBannerCopy = document.getElementById("runtimeBannerCopy");
+const copyFixStepsBtn = document.getElementById("copyFixStepsBtn");
 const copyEnvBtn = document.getElementById("copyEnvBtn");
 const runtimeInfoBtn = document.getElementById("runtimeInfoBtn");
 const runtimeInfoPanel = document.getElementById("runtimeInfoPanel");
 const runtimeModelValue = document.getElementById("runtimeModelValue");
 const runtimeDevValue = document.getElementById("runtimeDevValue");
 const runtimeProfileValue = document.getElementById("runtimeProfileValue");
+const runtimeErrorRow = document.getElementById("runtimeErrorRow");
+const runtimeErrorValue = document.getElementById("runtimeErrorValue");
+const retestModelBtn = document.getElementById("retestModelBtn");
 const copyRuntimeBtn = document.getElementById("copyRuntimeBtn");
 const copyProfileBtn = document.getElementById("copyProfileBtn");
 const copyDebugBtn = document.getElementById("copyDebugBtn");
@@ -40,6 +45,9 @@ const fontSizeValue = document.getElementById("fontSizeValue");
 const compactModeToggle = document.getElementById("compactModeToggle");
 const soundToggle = document.getElementById("soundToggle");
 const resetSettingsBtn = document.getElementById("resetSettingsBtn");
+const focusUiBtn = document.getElementById("focusUiBtn");
+
+const ENABLE_INLINE_CHAT_ENHANCEMENTS = false;
 
 let currentRuntime = null;
 let _copiedClearTimer = null;
@@ -130,6 +138,82 @@ const AUTOCOMPLETE_PREFIXES = [
 let autocompleteIndex = -1;
 let activeChatAbortController = null;
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderMarkdownToHtml(text) {
+  const source = String(text || "");
+  const fenceRegex = /```([\w-]+)?\n([\s\S]*?)```/g;
+  let cursor = 0;
+  let html = "";
+  let match;
+
+  while ((match = fenceRegex.exec(source)) !== null) {
+    const prose = source.slice(cursor, match.index);
+    html += renderMarkdownProse(prose);
+
+    const lang = (match[1] || "text").toLowerCase();
+    const code = match[2] || "";
+    html += `<div class=\"code-block\"><button type=\"button\" class=\"copy-code-btn\">Copy</button><pre><code class=\"language-${escapeHtml(lang)}\">${escapeHtml(code)}</code></pre></div>`;
+    cursor = match.index + match[0].length;
+  }
+
+  html += renderMarkdownProse(source.slice(cursor));
+  return html;
+}
+
+function renderMarkdownProse(text) {
+  if (!text) {
+    return "";
+  }
+
+  let html = escapeHtml(text);
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|\n)#{1,3}\s+([^\n]+)/g, (_m, prefix, heading) => `${prefix}<strong>${heading}</strong>`);
+  html = html.replace(/\n/g, "<br>");
+  return html;
+}
+
+function attachCodeCopyHandlers(container) {
+  const buttons = container.querySelectorAll(".copy-code-btn");
+  for (const button of buttons) {
+    button.addEventListener("click", async () => {
+      const block = button.closest(".code-block");
+      const code = block?.querySelector("code")?.textContent || "";
+      if (!code) {
+        return;
+      }
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(code);
+          button.textContent = "Copied";
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 1200);
+        }
+      } catch {
+        button.textContent = "Copy failed";
+        setTimeout(() => {
+          button.textContent = "Copy";
+        }, 1200);
+      }
+    });
+  }
+}
+
+function renderMessageBubble(bubble, text) {
+  bubble.innerHTML = renderMarkdownToHtml(text);
+  attachCodeCopyHandlers(bubble);
+}
+
 function setStreamingUiState(isStreaming) {
   if (sendBtn) sendBtn.disabled = isStreaming;
   if (messageInput) messageInput.disabled = isStreaming;
@@ -177,7 +261,7 @@ function addMessage(role, text) {
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.textContent = text;
+  renderMessageBubble(bubble, text);
 
   const bookmarkBtn = document.createElement("button");
   bookmarkBtn.className = "bookmark-msg-btn";
@@ -193,7 +277,7 @@ function addMessage(role, text) {
   wrapper.appendChild(bubble);
   wrapper.appendChild(bookmarkBtn);
 
-  if (role === "aiden") {
+  if (ENABLE_INLINE_CHAT_ENHANCEMENTS && role === "aiden") {
     const reactions = document.createElement("div");
     reactions.className = "reactions";
     const reactionEmojis = [
@@ -253,6 +337,8 @@ function createStreamingMessage(role) {
   bubble.className = "bubble streaming";
   bubble.textContent = "";
 
+  let rawText = "";
+
   wrapper.appendChild(tag);
   wrapper.appendChild(time);
   wrapper.appendChild(bubble);
@@ -262,13 +348,15 @@ function createStreamingMessage(role) {
 
   return {
     append(text) {
-      bubble.textContent += text;
+      rawText += text;
+      bubble.textContent = rawText;
       chat.scrollTop = chat.scrollHeight;
     },
     finalize() {
       bubble.classList.remove("streaming");
-      saveMessageToCurrentConversation(role, bubble.textContent || "");
-      if (role === "aiden") {
+      renderMessageBubble(bubble, rawText);
+      saveMessageToCurrentConversation(role, rawText || "");
+      if (ENABLE_INLINE_CHAT_ENHANCEMENTS && role === "aiden") {
         const reactions = document.createElement("div");
         reactions.className = "reactions";
         [
@@ -282,14 +370,14 @@ function createStreamingMessage(role) {
           btn.textContent = r.emoji;
           btn.title = r.label;
           btn.type = "button";
-          btn.addEventListener("click", () => recordReaction(r.label, bubble.textContent || ""));
+          btn.addEventListener("click", () => recordReaction(r.label, rawText || ""));
           reactions.appendChild(btn);
         });
         wrapper.appendChild(reactions);
 
         const suggestedReplies = document.createElement("div");
         suggestedReplies.className = "suggested-replies";
-        const suggestions = generateSuggestedReplies(bubble.textContent || "");
+        const suggestions = generateSuggestedReplies(rawText || "");
         suggestions.forEach((suggestion) => {
           const btn = document.createElement("button");
           btn.className = "suggested-reply-btn";
@@ -305,7 +393,7 @@ function createStreamingMessage(role) {
       wrapper.remove();
     },
     getText() {
-      return bubble.textContent || "";
+      return rawText;
     },
   };
 }
@@ -964,13 +1052,44 @@ function switchConversation(id) {
       
       const bubble = document.createElement("div");
       bubble.className = "bubble";
-      bubble.textContent = msg.text;
+      renderMessageBubble(bubble, msg.text);
       
       wrapper.appendChild(tag);
       wrapper.appendChild(time);
       wrapper.appendChild(bubble);
       
-      if (msg.role === "aiden") {
+      if (ENABLE_INLINE_CHAT_ENHANCEMENTS && msg.role === "aiden") {
+
+        function applyFocusUi(enabled) {
+          document.body.classList.toggle("chat-like", enabled);
+          if (!enabled) {
+            document.body.classList.remove("workspace-open");
+          }
+          if (enabled) {
+            conversationList?.classList.remove("hidden");
+          }
+          if (focusUiBtn) {
+            focusUiBtn.setAttribute("aria-expanded", String(document.body.classList.contains("workspace-open")));
+            focusUiBtn.textContent = document.body.classList.contains("workspace-open") ? "Hide Workspace" : "Workspace";
+          }
+        }
+
+        function loadFocusUiPreference() {
+          try {
+            const raw = localStorage.getItem("aidenFocusUi");
+            return raw === null ? true : raw === "true";
+          } catch {
+            return true;
+          }
+        }
+
+        function saveFocusUiPreference(enabled) {
+          try {
+            localStorage.setItem("aidenFocusUi", String(enabled));
+          } catch {
+            // Ignore storage failures and continue.
+          }
+        }
         const reactions = document.createElement("div");
         reactions.className = "reactions";
         [
@@ -1146,19 +1265,83 @@ function syncRuntime(runtime) {
     return;
   }
   currentRuntime = runtime;
-  const isLive = runtime.has_model === true;
-  runtimePill.classList.remove("live", "local");
-  runtimePill.classList.add(isLive ? "live" : "local");
-  runtimePill.textContent = isLive ? "Live Model" : "Local Dev Mode";
+  const modeLabel = runtime.mode_label || (runtime.has_model ? "live" : "local");
+  const isLive = modeLabel === "live";
+  const isFallback = modeLabel === "local-fallback";
+  runtimePill.classList.remove("live", "local", "fallback");
+  runtimePill.classList.add(isLive ? "live" : isFallback ? "fallback" : "local");
+  runtimePill.textContent = isLive
+    ? "Live Model"
+    : isFallback
+      ? "Fallback Mode"
+      : "Local Dev Mode";
   if (localBanner) {
     localBanner.classList.toggle("hidden", isLive);
   }
   if (runtimeModelValue) {
-    runtimeModelValue.textContent = isLive ? "connected" : "disconnected";
+    runtimeModelValue.textContent = isLive ? "connected" : isFallback ? "fallback" : "disconnected";
   }
   if (runtimeDevValue) {
     runtimeDevValue.textContent = runtime.dev_mode ? "enabled" : "disabled";
   }
+  if (runtimeErrorRow && runtimeErrorValue) {
+    const errorText = typeof runtime.model_error === "string" ? runtime.model_error.trim() : "";
+    runtimeErrorValue.textContent = errorText;
+    runtimeErrorRow.classList.toggle("hidden", !errorText);
+  }
+  syncRuntimeBanner(runtime);
+}
+
+function buildFixSteps(runtime) {
+  const error = (runtime?.model_error || "").toLowerCase();
+  if (error.includes("insufficient_quota") || error.includes("quota") || error.includes("ratelimiterror")) {
+    return [
+      "Open OpenAI billing/usage and ensure your project has available quota.",
+      "Wait 1-2 minutes after updating billing.",
+      "Click Runtime Details -> Retest Model.",
+      "Confirm mode_label is live.",
+    ];
+  }
+  if (error.includes("invalid_api_key") || error.includes("authentication") || error.includes("unauthorized")) {
+    return [
+      "Generate a new OpenAI API key.",
+      "Update OPENAI_API_KEY in .env.",
+      "Restart the app server.",
+      "Click Runtime Details -> Retest Model.",
+    ];
+  }
+  return [
+    "Verify OPENAI_API_KEY is set in .env.",
+    "Restart the app server.",
+    "Click Runtime Details -> Retest Model.",
+    "If still failing, review the last error text in Runtime Details.",
+  ];
+}
+
+function syncRuntimeBanner(runtime) {
+  if (!runtimeBannerCopy) {
+    return;
+  }
+  const modeLabel = runtime?.mode_label || "local";
+  if (modeLabel === "live") {
+    runtimeBannerCopy.textContent = "Live model is active.";
+    return;
+  }
+  const steps = buildFixSteps(runtime);
+  runtimeBannerCopy.textContent = `Running in fallback mode. Next step: ${steps[0]}`;
+}
+
+async function retestModelConnection() {
+  const response = await fetch("/api/runtime/retest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Could not retest model connection");
+  }
+  syncRuntime(data.runtime || null);
+  return data.runtime || {};
 }
 
 async function copyEnvSetup() {
@@ -1960,6 +2143,21 @@ copyEnvBtn?.addEventListener("click", async () => {
   }
 });
 
+copyFixStepsBtn?.addEventListener("click", async () => {
+  try {
+    const steps = buildFixSteps(currentRuntime || {});
+    const text = steps.map((step, idx) => `${idx + 1}. ${step}`).join("\n");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      addMessage("aiden", "Copied model fix steps to clipboard.");
+      return;
+    }
+    addMessage("aiden", `Model fix steps:\n${text}`);
+  } catch (error) {
+    addMessage("aiden", `Error: ${error}`);
+  }
+});
+
 runtimeInfoBtn?.addEventListener("click", () => {
   if (!runtimeInfoPanel) {
     return;
@@ -1989,6 +2187,24 @@ copyDebugBtn?.addEventListener("click", async () => {
     await copyDebugSnapshot();
   } catch (error) {
     addMessage("aiden", `Error: ${error}`);
+  }
+});
+
+retestModelBtn?.addEventListener("click", async () => {
+  try {
+    retestModelBtn.disabled = true;
+    retestModelBtn.textContent = "Retesting...";
+    const runtime = await retestModelConnection();
+    if (runtime.mode_label === "live") {
+      addMessage("aiden", "Model connection is healthy. Live mode is active.");
+    } else {
+      addMessage("aiden", "Model is not live yet. Check Runtime Details for the exact error.");
+    }
+  } catch (error) {
+    addMessage("aiden", `Error: ${error}`);
+  } finally {
+    retestModelBtn.disabled = false;
+    retestModelBtn.textContent = "Retest Model";
   }
 });
 
@@ -2135,6 +2351,19 @@ document.addEventListener("keydown", async (event) => {
 });
 
 settingsBtn?.addEventListener("click", () => {
+
+  focusUiBtn?.addEventListener("click", () => {
+    if (!document.body.classList.contains("chat-like")) {
+      applyFocusUi(true);
+      saveFocusUiPreference(true);
+      document.body.classList.add("workspace-open");
+    } else {
+      document.body.classList.toggle("workspace-open");
+    }
+
+    focusUiBtn.setAttribute("aria-expanded", String(document.body.classList.contains("workspace-open")));
+    focusUiBtn.textContent = document.body.classList.contains("workspace-open") ? "Hide Workspace" : "Workspace";
+  });
   if (!settingsPanel) return;
   const isHidden = settingsPanel.classList.toggle("hidden");
   settingsBtn.setAttribute("aria-expanded", String(!isHidden));
@@ -2290,6 +2519,8 @@ applySettings(initialSettings);
 if (initialSettings.soundEnabled) {
   soundToggle.checked = true;
 }
+
+applyFocusUi(loadFocusUiPreference());
 
 loadConversations();
 updateConversationUI();

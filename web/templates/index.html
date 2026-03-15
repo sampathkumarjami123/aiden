@@ -34,6 +34,9 @@
           <button id="statsBtn" type="button" class="pill stats-trigger" aria-expanded="false" title="Chat Statistics">
             📊
           </button>
+          <button id="focusUiBtn" type="button" class="pill focus-ui-trigger" aria-expanded="false" title="Toggle workspace panels">
+            Workspace
+          </button>
         </div>
       </header>
 
@@ -41,8 +44,13 @@
         <div><strong>model:</strong> <span id="runtimeModelValue">{% if runtime.has_model %}connected{% else %}disconnected{% endif %}</span></div>
         <div><strong>dev mode:</strong> <span id="runtimeDevValue">{% if runtime.dev_mode %}enabled{% else %}disabled{% endif %}</span></div>
         <div><strong>profile:</strong> <span id="runtimeProfileValue">{{ prefs.active_profile }}</span></div>
+        <div id="runtimeErrorRow" class="runtime-error {% if not runtime.model_error %}hidden{% endif %}">
+          <strong>last error:</strong>
+          <span id="runtimeErrorValue">{{ runtime.model_error or '' }}</span>
+        </div>
         <div class="runtime-panel-actions">
           <span id="lastCopiedAt" class="last-copied-at"></span>
+          <button id="retestModelBtn" type="button">Retest Model</button>
           <button id="copyRuntimeBtn" type="button" title="Ctrl+Shift+R">Copy Runtime JSON</button>
           <button id="copyProfileBtn" type="button">Copy Profile Name</button>
           <button id="copyDebugBtn" type="button" title="Ctrl+Shift+D">Copy Full Debug Snapshot</button>
@@ -179,10 +187,13 @@
         class="runtime-banner {% if runtime.has_model %}hidden{% endif %}"
         aria-live="polite"
       >
-        <div class="runtime-copy">
+        <div id="runtimeBannerCopy" class="runtime-copy">
           Running in local dev fallback. Add your API key in .env to enable full model answers.
         </div>
-        <button id="copyEnvBtn" type="button">Copy .env Setup</button>
+        <div class="runtime-banner-actions">
+          <button id="copyFixStepsBtn" type="button">Copy Fix Steps</button>
+          <button id="copyEnvBtn" type="button">Copy .env Setup</button>
+        </div>
       </section>
 
       <section class="utility-grid">

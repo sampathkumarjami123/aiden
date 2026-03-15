@@ -596,6 +596,50 @@ class ChatLocalFallbackTests(unittest.TestCase):
         self.assertIn("can't help", chunks[0].lower())
         self.assertEqual(self.engine.messages[-1]['role'], 'assistant')
 
+    def test_chat_falls_back_when_live_client_errors_in_dev_mode(self):
+        class BrokenCompletions:
+            def create(self, **_kwargs):
+                raise RuntimeError('upstream auth failed')
+
+        class BrokenChat:
+            completions = BrokenCompletions()
+
+        class BrokenClient:
+            chat = BrokenChat()
+
+        self.engine.dev_mode = True
+        self.engine.client = BrokenClient()
+
+        result = self.engine.chat('plan: prepare release')
+        self.assertIn('Local Dev Mode', result)
+        self.assertEqual(self.engine.messages[-1]['role'], 'assistant')
+        runtime = self.engine.get_runtime_info()
+        self.assertFalse(runtime['has_model'])
+        self.assertEqual(runtime['mode_label'], 'local-fallback')
+
+    def test_chat_stream_falls_back_when_live_client_errors_in_dev_mode(self):
+        class BrokenCompletions:
+            def create(self, **_kwargs):
+                raise RuntimeError('stream failure')
+
+        class BrokenChat:
+            completions = BrokenCompletions()
+
+        class BrokenClient:
+            chat = BrokenChat()
+
+        self.engine.dev_mode = True
+        self.engine.client = BrokenClient()
+
+        chunks = list(self.engine.chat_stream('summarize: alpha beta gamma'))
+        self.assertTrue(chunks)
+        merged = ''.join(chunks)
+        self.assertIn('Local Dev Mode', merged)
+        self.assertEqual(self.engine.messages[-1]['role'], 'assistant')
+        runtime = self.engine.get_runtime_info()
+        self.assertFalse(runtime['has_model'])
+        self.assertEqual(runtime['mode_label'], 'local-fallback')
+
     def test_reset_chat_clears_history_except_system_prompt(self):
         self.engine.chat('Hello')
         self.engine.reset_chat()

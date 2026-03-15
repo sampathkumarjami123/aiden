@@ -297,6 +297,12 @@ def get_state():
     )
 
 
+@app.post("/api/runtime/retest")
+def retest_runtime_model():
+    runtime = _engine_run(engine.retest_model_connection)
+    return JSONResponse({"ok": True, "runtime": runtime})
+
+
 @app.post("/api/chat")
 def chat(payload: ChatPayload):
     _apply_chat_preferences(payload)
