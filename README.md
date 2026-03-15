@@ -33,7 +33,7 @@ Aiden is a local AI assistant with:
 
 ---
 
-## 🌟 Latest Features (v1.0)
+## 🌟 Latest Features (v1.0.1)
 
 ### UI/UX Enhancements (26 Total)
 - ✨ **5 Theme Presets** - Light, Dark, Nord, Dracula, Solarized
@@ -81,6 +81,7 @@ Then edit `.env` and set:
 - Optional: `AIDEN_RATE_LIMIT_WINDOW_SECONDS` (default is `60`)
 - Optional: `AIDEN_RATE_LIMIT_PER_WINDOW` (default is `60`)
 - Optional: `AIDEN_MAX_REQUEST_BYTES` (default is `65536`)
+- Optional: `AIDEN_STREAM_MAX_SECONDS` (default is `120`; max stream duration guard)
 - Optional: `AIDEN_LOG_LEVEL` (default is `INFO`)
 - Optional: `AIDEN_LOG_MAX_BYTES` (default is `1048576`)
 - Optional: `AIDEN_LOG_BACKUP_COUNT` (default is `3`)
@@ -101,7 +102,7 @@ Use these helper scripts after setup:
 .\scripts\health-check.ps1 -StartupTimeoutSeconds 60
 .\scripts\logs.ps1 -Tail 100
 .\scripts\logs.ps1 -Tail 100 -Follow
-.\scripts\release.ps1 -Version v1.0.0 -DryRun
+.\scripts\release.ps1 -Version v1.0.1 -DryRun
 ```
 
 CI quality checks run automatically on pushes and pull requests via GitHub Actions.
@@ -214,6 +215,7 @@ In voice mode:
 - Health endpoint for checks and monitoring: `GET /health`
 - Streaming chat endpoint: `POST /api/chat/stream` (returns `application/x-ndjson` with `chunk` and `final` events)
 - Stream failures emit a structured `error` event before the final metadata event
+- Stream duration is bounded by `AIDEN_STREAM_MAX_SECONDS` to avoid runaway responses
 - API responses include `x-request-id` for easier request tracing in logs.
 - In local fallback mode, you can use prefixes for structured output:
 	- `summarize: <text>`
