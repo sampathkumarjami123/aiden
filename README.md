@@ -96,6 +96,7 @@ Use these helper scripts after setup:
 .\scripts\start.ps1 -Mode web -Reload -OpenBrowser
 .\scripts\start.ps1 -Mode web -Reload -Background -OpenBrowser
 .\scripts\stop-web.ps1
+.\scripts\status-web.ps1
 .\scripts\start.ps1 -Mode cli
 .\scripts\start.ps1 -Mode desktop
 .\scripts\start.ps1 -Mode voice
@@ -202,6 +203,7 @@ In voice mode:
 - `scripts/setup.ps1`: creates virtual environment, installs dependencies, and bootstraps `.env`
 - `scripts/start.ps1`: one-command launcher for web, cli, desktop, voice, and doctor diagnostics mode
 - `scripts/stop-web.ps1`: stops a background web server started by `start.ps1 -Mode web -Background`
+- `scripts/status-web.ps1`: reports background web PID/process status plus `/health` reachability
 - `scripts/test.ps1`: runs unit tests from the `tests/` folder
 - `scripts/quality-gate.ps1`: runs tests plus health checks as one local gate
 - `scripts/health-check.ps1`: compile and web endpoint smoke test
