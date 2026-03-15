@@ -142,6 +142,7 @@ Web includes:
 - Streaming assistant replies over `/api/chat/stream` (NDJSON chunks)
 - Stop button to cancel in-progress streamed replies
 - Automatic one-time retry on transient stream interruptions
+- Runtime Details panel with one-click **Retest Model** diagnostics
 
 ## 5) Run Voice Mode
 
@@ -217,7 +218,37 @@ In voice mode:
 - Stream failures emit a structured `error` event before the final metadata event
 - Stream duration is bounded by `AIDEN_STREAM_MAX_SECONDS` to avoid runaway responses
 - API responses include `x-request-id` for easier request tracing in logs.
+- Runtime model retest endpoint: `POST /api/runtime/retest`
 - In local fallback mode, you can use prefixes for structured output:
 	- `summarize: <text>`
 	- `plan: <goal or task>`
 	- `checklist: <goal or task>`
+
+## Live Model Troubleshooting
+
+If the UI shows `Local Dev Mode` or `Fallback Mode` instead of `Live Model`:
+
+1. Open **Runtime Details** in the web app.
+2. Click **Retest Model**.
+3. Check `last error` text for the root cause.
+
+Common causes:
+
+- `invalid_api_key` or `AuthenticationError`:
+	- Generate a new key.
+	- Update `OPENAI_API_KEY` in `.env`.
+	- Restart the app.
+- `insufficient_quota` or `RateLimitError`:
+	- Enable billing or add credit in OpenAI for the project.
+	- Wait 1-2 minutes.
+	- Click **Retest Model** again.
+
+Quick terminal check:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/state | ConvertTo-Json -Depth 5
+```
+
+Expected live state:
+- `runtime.mode_label = "live"`
+- `runtime.has_model = true`
