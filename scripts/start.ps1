@@ -20,6 +20,9 @@ Push-Location $ProjectRoot
 try {
     switch ($Mode) {
         'web' {
+            if ($OpenBrowser) {
+                Start-Process "http://127.0.0.1:$Port" | Out-Null
+            }
             $args = @('-m', 'uvicorn', 'aiden_web:app', '--host', '127.0.0.1', '--port', "$Port")
             if ($Reload) {
                 $args += '--reload'

@@ -93,6 +93,7 @@ Use these helper scripts after setup:
 ```powershell
 .\scripts\setup.ps1
 .\scripts\start.ps1 -Mode web -Reload
+.\scripts\start.ps1 -Mode web -Reload -OpenBrowser
 .\scripts\start.ps1 -Mode cli
 .\scripts\start.ps1 -Mode desktop
 .\scripts\start.ps1 -Mode voice
